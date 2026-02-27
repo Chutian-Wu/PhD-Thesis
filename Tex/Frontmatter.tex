@@ -1,0 +1,48 @@
+%---------------------------------------------------------------------------%
+%->> Frontmatter
+%---------------------------------------------------------------------------%
+\maketitle
+\MAKETITLE
+\makedeclaration
+
+\intobmk\chapter*{摘\quad 要}
+\setcounter{page}{1}
+\pagenumbering{Roman}
+
+本文是中国科学院大学学位论文模板ucasthesis的使用说明文档。主要内容为介绍\LaTeX{}文档类ucasthesis的用法, 以及如何使用\LaTeX{}快速高效地撰写学位论文。
+
+\keywords{中国科学院大学, 学位论文}
+
+\intobmk\chapter*{Abstract}
+Model--consistent training has become trending for data-driven turbulence modeling since it can improve model generalizability and reduce data requirements by involving the Reynolds--averaged Navier--Stokes (RANS) equation during model learning.
+Neural networks are often used for the Reynolds stress representation due to their great expressive power, while they lack interpretability for the causal relationship between model inputs and outputs.
+Some post--hoc methods have been used to explain the neural network by indicating input feature importance.
+However, for the model--consistent training, the model explainability involves the analysis of both the neural network inputs and outputs.
+That is, the effects of model output on the RANS predictions should also be explained in addition to the input feature analysis.
+In this work, we investigate the explainability of the model--consistent learned model for the internal flow prediction of NASA Rotor 37 at its peak efficiency operating condition.
+The neural--network--based corrections for the Spalart--Allmaras turbulence model are learned from various experimental data based on the ensemble Kalman method.
+The learned model can noticeably improve the velocity prediction near the shroud.
+The explainability of the trained neural network is analyzed in terms of the model correction and the input feature importance.
+Specifically, the learned model correction increases the local turbulence production in the vortex breakdown region due to non--equilibrium effects, which capture the blockage effects near the shroud.
+Besides, the ratio of production to destruction and the helicity are shown to have relatively high importance for accurately predicting the compressor rotor flows based on the Shapley additive explanations method.
+
+Learning symbolic turbulence models from indirect observation data is of significant interest as it not only improves the accuracy of posterior prediction but also provides explicit model formulations with good interpretability.
+However, it typically resorts to gradient-free evolutionary algorithms, which can be relatively inefficient compared to gradient-based approaches, particularly when the Reynolds-averaged Navier-Stokes (RANS) simulations are involved in the training process.
+In view of this difficulty, we propose a framework that uses neural networks and the associated feature importance analysis to improve the efficiency of symbolic turbulence modeling.
+In doing so, the gradient-based method can be used to efficiently learn neural network-based representations of Reynolds stress from indirect data, which is further transformed into simplified mathematical expressions with symbolic regression.
+Moreover, feature importance analysis is introduced to accelerate the convergence of symbolic regression by excluding insignificant input features.
+The proposed training strategy is tested in the flow in a square duct, where it correctly learns underlying analytic models from indirect velocity data.
+Further, the method is applied in the flow over the periodic hills, demonstrating that the feature importance analysis can significantly improve the training efficiency and learn symbolic turbulence models with satisfactory generalizability.
+
+In this work, we propose a neural operator-based colored-in-time forcing model to predict space-time characteristics of large-scale turbulent structures in channel flows.
+The resolvent-based method has emerged as a powerful tool to capture dominant dynamics and associated spatial structures of turbulent flows.
+However, the method faces the difficulty in modeling the colored-in-time nonlinear forcing, which often leads to large predictive discrepancies in the frequency spectra of velocity fluctuations.
+Although the eddy viscosity has been introduced to enhance the resolvent-based method by partially accounting for the forcing color, it is still not able to accurately capture the decay rate of time-correlation function.
+Also, the uncertainty in the modeled eddy viscosity can significantly limit the predictive reliability of the method.
+In view of these difficulties, we propose using the neural operator based on the DeepONet architecture to model the stochastic forcing as a function of mean velocity and eddy viscosity.
+Specifically, the DeepONet-based model is constructed to map arbitrary eddy-viscosity profile and corresponding mean velocity to stochastic forcing spectra based on the direct numerical simulation (DNS) data at $Re_\tau=180$.
+Further, the learned forcing model is integrated with the resolvent operator, which enables predicting the space-time flow statistics based on the eddy viscosity and mean velocity from the Reynolds-averaged Navier-Stokes (RANS) method.
+Our results show that the proposed forcing model can accurately predict the frequency spectra of velocity in channel flows at different characteristic scales.
+Moreover, the model remains robust across different RANS-provided eddy viscosities and generalizes well to $Re_\tau=550$.
+
+\KEYWORDS{University of Chinese Academy of Sciences (UCAS), Thesis, \LaTeX{} Template}

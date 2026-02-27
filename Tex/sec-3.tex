@@ -1,0 +1,994 @@
+\chapter{基于神经网络和特征重要性分析的符号回归湍流建模}
+
+\section{引言}
+数据驱动方法作为增强湍流模型性能的新型工具，通过构建高保真的闭合关系，显著提升了雷诺平均纳维-斯托克斯（RANS）数值模拟的预测精度。
+目前，研究人员已广泛利用不同维度的观测数据，如速度场等间接数据~\citep{holland2019, STROFER2021TAML}以及雷诺应力等直接数据~\citep{ling2016reynolds, Wu2017PhysRevFluids}，来探索平均流场变量与雷诺应力项之间的最优函数映射。
+相较于直接观测数据，间接数据（如表面压力、PIV速度场等）在实验获取及工程应用中更为便捷，特别是在高雷诺数流场测量中具有显著优势。此外，基于间接数据的训练策略通过将 RANS 方程组嵌入训练循环中，能够确保预测结果在数学上满足守恒定律，从而保证平均流场预测的物理一致性~\citep{holland2019, zhang2022, Liu2023}。因此，探索如何从有限的间接观测数据中学习并构建高精度的解析湍流模型，具有重要的理论价值与工程意义。
+
+目前，间接数据驱动的湍流建模主要呈现为两种模型表征形式：神经网络（Neural Networks）~\citep{ling2016reynolds, singh2017machine}与符号表达式（Symbolic Expressions）~\citep{WEATHERITT201622}。神经网络本质上是一类复杂的复合非线性函数，得益于通用逼近定理（Universal Approximation Theorem），其在复杂流场特征的高维表征方面展现出极强的表达能力~\citep{pinkus1999approximation, zhang2024multi}。相比之下，符号表达式通过字母、数字字符及数学运算符的组合，构建出显式的代数公式~\citep{makke2024interpretable}。
+尽管两种表征形式均已被证实能显著提升基于间接观测数据的 RANS 模拟精度~\citep{holland2019, ZHAO2020, STROFER2021TAML, zhang2022}，但它们在数学结构、物理透明度及计算成本上存在显著差异。下文将从模型的可解释性（Interpretability）与训练效率（Training Efficiency）两个核心维度，简要探讨这两类模型形式在湍流建模任务中的表现异同。
+
+
+% % \chapter{数据驱动的符号回归湍流建模}
+
+% % \section{引言}
+% % 数据驱动方法作为增强湍流模型的替代工具应运而生, 从而提升了Reynolds平均Navier-Stokes方程(RANS)模拟的预测精度。
+% % 不同观测数据(如速度的间接数据~\citep{holland2019, STROFER2021TAML}与Reynolds应力相关的直接数据~\citep{ling2016reynolds, Wu2017PhysRevFluids})已被用于探索平均流场与Reynolds应力间的最优函数映射。
+% % 相较于直接观测数据, 间接观测数据获取更为便捷, 尤其适用于高Reynolds数流动场。
+% % 此外, 基于间接数据的训练策略能确保平均流场预测精度——因训练过程涉及RANS方程的运用~\citep{holland2019, zhang2022, Liu2023}。
+% % 因此, 从间接观测数据中学习精确湍流模型具有重要意义。
+
+% % 间接数据已被用于学习以多种形式表示的湍流模型, 包括神经网络~\citep{ling2016reynolds, singh2017machine}和符号表达式~\citep{WEATHERITT201622}。
+% % 神经网络本质上是复合非线性函数, 基于广为人知的通用逼近理论, 其具有强大的表达能力~\citep{pinkus1999approximation,zhang2024multi}。
+% % 相较之下, 符号表达通过特定规则排列的字母数字字符与运算符号构成数学公式~\citep{makke2024interpretable}。
+% % 两种模型表征均已被证实能提升基于间接观测数据的RANS模拟精度~\citep{holland2019,ZHAO2020,STROFER2021TAML,zhang2022}。
+% % 下文将简要探讨这两类模型形式在模型可解释性与训练效率方面的差异。
+
+% % 基于神经网络的方法能够高效学习黑箱中Reynolds应力的复杂模型形式。
+% % 具体而言, 神经网络具有强大的表达能力, 可通过多层结构刻画极其复杂的数学函数。
+% % 此外, 基于梯度的方法可应用于根据间接观测数据高效优化神经网络权重。
+% % 然而, 由于由多个非线性函数组合构成, 所学习的神经网络属于黑箱模型, 导致模型可解释性困难。
+% % 这种神经网络湍流模型的固有属性导致其在模型就绪度评级(MRR)系统中排名相对较低~\citep{NASA}。
+% % 已有若干研究致力于提升神经网络湍流模型的可解释性, 主要通过分析特征重要性实现。
+% % 例如, SHAP(SHapley Additive exPlanations)~\citep{HE2022,WU2023}和置换特征重要性(PFI)方法~\citep{MANDLER2023}被用于揭示各输入特征对模型预测的贡献。
+% % 然而, 这些模型无关且事后分析的方法仅能为基于神经网络的湍流模型提供部分可解释性, 即输入特征的相对重要性。
+% % 因此, 符号表达因其良好的可解释性和便于进一步模型开发而日益受到关注。
+
+基于神经网络（Neural Network, NN）的方法能够高效构建雷诺应力与平均流场参量之间的复杂函数映射。凭借强大的非线性表达能力，神经网络通过深层嵌套结构可拟合极其复杂的数学函数。此外，成熟的误差反向传播（Backpropagation）算法与基于梯度的优化策略，使得从间接观测数据中高效迭代神经网络权重成为可能。
+然而，由于神经网络由大量非线性激活函数与权值矩阵复合而成，其本质上属于典型的“黑箱”模型。这种逻辑上的不透明性导致模型难以通过物理直觉进行校验，严重限制了其在严苛工程环境下的可信度。根据 NASA 提出的模型就绪度评级（Model Readiness Level, MRL）系统，此类缺乏显式解析表达的湍流模型往往排名较低~\citep{NASA}。
+为了改善这一现状，已有研究尝试引入可解释机器学习（XAI）技术来提升神经网络模型的可理解性。其中，SHAP（SHapley Additive exPlanations）~\citep{HE2022, WU2023} 和置换特征重要性（Permutation Feature Importance, PFI）~\citep{MANDLER2023} 等方法被广泛用于量化各输入特征对预测结果的边际贡献。尽管如此，这些模型无关（Model-agnostic）的事后分析方法仅能提供“局部”可解释性，即只能揭示输入变量的相对重要性，而无法还原湍流物理机制背后的显式数学逻辑。
+因此，具有解析形式的符号表达式（Symbolic Expressions）因其卓越的物理透明度、易于移植性和便于二次开发的特性，在数据驱动湍流建模领域日益受到学术界与工程界的关注。
+
+与神经网络不同，基于符号回归（Symbolic Regression, SR）的方法能够在“白盒”环境下直接生成雷诺应力的解析数学表达式。该类方法的核心目标是构建形式简洁、物理意义明确的显式代数模型，从而在提升 RANS 预测精度的同时，赋予模型卓越的可解释性。
+目前，针对间接观测数据的湍流模型学习，学术界已开发出多种符号回归策略。其中，基因表达编程法（Gene Expression Programming, GEP）~\citep{WEATHERITT201622} 已被广泛用于从各类非直接实验数据中提取雷诺应力的符号规律~\citep{ZHAO2020, Fang2023, LAV2023109140}。在该框架下，算法通过求解耦合了不同候选闭合模型的 RANS 方程组，来评估其对应的代价函数（Cost Function）。另一种极具代表性的方案是将符号回归与流场反演（Field Inversion）技术相结合~\citep{he2024field}：首先利用伴随法（Adjoint Method）从间接观测数据中推断出最优雷诺应力场；随后将该推断场作为训练真值，利用遗传演化规划寻找最优的符号表征。
+然而，基于演化算法（如 GEP）的训练策略往往面临严峻的计算成本挑战，尤其是在训练循环内嵌套 RANS 模拟时~\citep{ZHAO2020}。这种高昂开销主要源于候选模型进化过程中庞大的种群基数与迭代代数（通常需演化数千代）。由于每一代中的每个候选个体均需通过完整的 RANS 计算进行性能评估，计算资源的需求呈指数级增长。因此，如何开发出既能利用间接观测数据、又能保持高效收敛的符号湍流模型学习方法，已成为当前数据驱动流体力学领域亟待解决的关键问题。
+
+% % 基于符号表达式的方法可在白盒环境中提供Reynolds应力的解析表达式。
+% % 该方法旨在构建简洁的Reynolds应力数学表达式, 以提升RANS预测精度并具备良好的物理可解释性。
+% % 基于间接观测数据学习湍流模型, 已开发出多种符号回归方法。
+% % 例如基因表达编程法(GEP) ~\citep{WEATHERITT201622}已被用于从各类间接数据中学习Reynolds应力的符号表达式~\citep{ZHAO2020, Fang2023, LAV2023109140}。
+% % 该方法通过求解耦合不同候选模型的RANS方程来评估对应成本函数实现。
+% % 另一种方案是将符号回归与场反演技术结合, 从间接观测数据中发现数学表达式~\citep{he2024field}。
+% % 即首先采用伴随法从间接观测数据推断最优Reynolds应力场。
+% % 随后将该推断场作为训练数据, 基于遗传进化规划法寻找最优符号表达式。
+% % 然而基于GEP的训练策略可能导致较高计算成本, 尤其在训练过程中涉及RANS模拟时~\citep{ZHAO2020}。
+% % 这归因于候选模型进化过程中涉及的代数数量庞大, 通常达数千代之多。
+% % 每个候选模型都需要在每代RANS计算中进行评估, 导致计算成本显著增加。
+% % 因此, 有必要开发基于间接观测数据的高效符号湍流模型学习方法。
+
+% % 鉴于神经网络与符号回归的优势,
+% % Lav等人~\citep{LAV2023109140}提出将两种方法结合以提升学习型符号湍流模型的预测精度。
+% % 具体而言, 首先利用神经网络强大的表达能力构建复杂模型函数, 再通过符号回归将基于神经网络的功能映射转化为简洁的数学表达式。
+% % 该研究聚焦于利用Reynolds应力的直接观测数据进行符号湍流建模。
+% % 通过神经网络与符号回归耦合学习间接数据的研究尚属空白, 这对仅有间接观测数据的场景具有重要实践意义。
+% % 此外, 神经网络特征重要性分析值得深入探索, 通过剔除无关特征可有效提升符号回归的效率。
+
+
+鉴于神经网络与符号回归的优势,
+Lav等人~\citep{LAV2023109140}提出将两种方法结合以提升学习型符号湍流模型的预测精度。
+具体而言, 首先利用神经网络强大的表达能力构建复杂模型函数, 再通过符号回归将基于神经网络的功能映射转化为简洁的数学表达式。
+该研究聚焦于利用Reynolds应力的直接观测数据进行符号湍流建模。
+通过神经网络与符号回归耦合学习间接数据的研究尚属空白, 这对仅有间接观测数据的场景具有重要实践意义。
+此外, 神经网络特征重要性分析值得深入探索, 通过剔除无关特征可有效提升符号回归的效率。
+
+% % 在这项工作中, 我们提出了一种新颖的框架, 该框架结合了神经网络与符号回归, 以从间接观测数据中学习可解释的湍流模型。
+% % 我们利用神经网络强大的表达能力和训练效率来对Reynolds应力进行建模。
+% % 符号回归方法~\citep{Silviu2020} 进一步将黑盒神经网络模型转化为由重要流动特征构成的白盒符号模型。
+% % 数据驱动的湍流建模中经常遇到高维输入特征~\citep{Fang2023}, 这常常阻碍了准确符号表达式的高效发现。
+% % 为了解决这一困难, 我们引入了置换特征重要性 方法, 以识别并排除不显著、不相关及冗余的特征, 从而简化神经网络并提升符号回归的效率~\citep{Chen2017,Helali2024}。
+% % 我们注意到, 从间接数据中学习基于神经网络的RANS模型~\citep{ling2016reynolds, singh2017machine}, 以及将神经网络模型转换为符号表达式~\citep{LAV2023109140}, 这两方面均已有研究。
+% % 本文提出了将这两种方法相结合, 这为从稀疏的间接数据中发现可解释的符号模型提供了一条实用途径。
+% % 此外, 本文引入神经网络作为符号建模的中间过程, 这缓解了传统符号回归因采用梯度优化和特征降维而存在的效率问题。
+
+在本研究中，我们提出了一种结合神经网络与符号回归的新型建模框架，旨在从稀疏的间接观测数据中构建具有高度可解释性的湍流闭合模型。该框架通过整合神经网络的非线性表征能力与符号回归的显式解析优势，实现从数据到物理规律的高效转化。
+首先，利用神经网络强大的函数逼近能力与高效的训练算法，对雷诺应力项进行初步建模与特征映射。随后，通过引入 PySR 等符号回归方法~\citep{Silviu2020}，将原本“黑箱”化的神经网络模型转化为由核心物理特征构成的“白箱”符号表达式。针对数据驱动湍流建模中普遍存在的高维输入特征问题~\citep{Fang2023}——这一因素往往导致符号搜索空间出现组合爆炸，从而阻碍准确公式的发现——本框架引入了置换特征重要性（Permutation Feature Importance, PFI）方法。该方法能够识别并剔除不显著或冗余的特征变量，在简化神经网络结构的同时，显著压缩了符号回归的搜索维度，从而大幅提升了算法的搜索效率与结果的解析质量~\citep{Chen2017, Helali2024}。
+尽管前人已分别在基于间接数据的神经网络 RANS 建模~\citep{ling2016reynolds, singh2017machine}以及将已有神经网络转换为符号表达式~\citep{LAV2023109140}方面开展了相关研究，但本文的创新之处在于将这两者有机结合，构建了一套完整的、面向稀疏间接观测数据的可解释建模路径。此外，通过引入神经网络作为符号建模的中间媒介，本框架利用基于梯度的优化算法预先定位了模型空间的解区，并辅以特征降维技术，有效缓解了传统符号回归在处理复杂物理约束时存在的收敛缓慢与效率低下等痼疾。
+
+% % 本文其余部分结构如下。
+% % 在第~\ref{sec:II} 节中, 我们将介绍Reynolds应力表示方法、神经网络训练方法、特征重要性分析以及符号回归方法。
+% % 在第~\ref{sec:III} 节中, 我们展示并讨论了所提方法在方管流和周期性山丘绕流中的应用结果。
+% % 最后, 第~\ref{sec:IV} 节给出了结论性评述。
+
+本文余下部分的结构安排如下：在章节~\ref{sec:II} 中，我们将详细阐述所提出的混合建模框架，包括雷诺应力的张量表征方法、基于间接数据的神经网络训练策略、置换特征重要性（PFI）分析流程，以及符号回归算法的实现细节。
+在章节~\ref{sec:III} 中，我们将该方法应用于两个经典的湍流算例——方管流（Square Duct Flow）与周期性山丘绕流（Periodic Hills），通过对计算结果的定量评估与物理归因，展示并讨论该框架在提升 RANS 预测精度及提取解析规律方面的有效性。
+最后，章节~\ref{sec:IV} 给出了结论性评述。
+
+\section{符号回归湍流建模框架}
+\label{sec:II}
+我们提出利用结合特征重要性分析的神经网络, 从间接观测数据中学习符号湍流模型。
+神经网络用于近似从间接数据到目标的复杂函数映射, 而符号回归则进一步用于将黑盒网络模型解释为白盒数学表达式。
+图~\ref{fig:overall-floa-chart} 展示了所提出的从间接数据学习符号湍流模型的工作流程, 该流程包含以下三个主要步骤。
+
+\begin{enumerate}[label=(\roman*)]
+    \item 神经网络训练。
+          基于非线性涡粘性模型, 使用神经网络结合一组预设的输入特征~$\bm{q}$ 来表示Reynolds应力~$\bm{\tau}$。
+          集成Kalman方法~\citep{iglesias2013ensemble} 通过优化神经网络权重~$w$ 来最小化RANS预测与间接观测之间的差异。
+    \item 特征重要性分析。
+          使用特征分析方法, 即置换特征重要性(PFI) , 在训练好的神经网络中识别输入特征~$\bm{q}$ 的贡献度~$\psi$。
+          通过这种方式, 可以排除不重要的特征, 以加速后续的符号回归。
+    \item 符号回归。
+          采用受物理学启发的符号回归算法, 即AI Feynman~\citep{Silviu2020}, 将学习到的神经网络转换为一个包含已识别重要特征~$\bm{q^{*}}$ 的符号表达式。
+          神经网络的输出被用作符号回归的训练数据。
+          诸如可分离性和对称性等物理性质可用于将回归问题分解为简单的子问题, 最终得到一个显式的模型公式。
+\end{enumerate}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/overall-flowchart-new.pdf}
+    \bicaption{所提出的基于神经网络的符号回归框架示意图：(a) 使用基于集成方法通过间接数据训练神经网络, (b) 使用置换特征重要性方法评估特征重要性, 以及 (c) 基于物理启发的符号回归(即AI Feynman)结合重要输入特征。}{Schematic of the proposed neural network-based symbolic regression framework: (a)  neural network training using indirect data by the ensemble-based method, (b) feature importance evaluation using the permutation feature importance method, and (c) physics-inspired symbolic regression (i.e., AI Feynman) with important input features.}
+    \label{fig:overall-floa-chart}
+\end{figure}
+
+所提出的框架同时使用了基于神经网络的训练技术和符号回归技术, 这需要不同的模型表示方法和训练方式。
+下文将分别详细阐述其表示方法及所提出的训练工作流程。
+
+\subsection{基张量神经网络}
+\label{sec:tbnn}
+
+根据广义涡粘性假设~\citep{pope_1975}, Reynolds应力张量的各向异性部分, 即 $\m{b}=\bm{\tau}/2k-\m{I}/3$, 被假定为依赖于平均流场, 其函数关系如下:
+\begin{equation}
+    \label{eq:b}
+    \m{b}=\sum_{i=1}^{M}g^{(i)}\bra{\mathbf{\bm{\theta}}}\m{T}^{(i)} \text{,}
+\end{equation}
+其中 $\bm{\theta},\m{T}^{(i)}$ 分别为标量不变量和张量基, $g^{(i)}$ 为标量不变量 $\bm{\theta}$ 上的张量系数函数。
+本研究采用雷诺应力的紧致表示~\citep{Fu2011}, 包含 $6$ 个不可约不变量和前 $5$ 个张量基。
+这些标量不变量和张量基具体为:
+\begin{subequations}
+    \begin{equation}
+        \label{equ:invariants}
+        \resizebox{0.9\linewidth}{!}{$\displaystyle
+                \theta_1=\tr \{ \m{S}^2\},\,
+                \theta_2=\tr \{\m{W}^2\},\,
+                \theta_3=\tr \{\m{S}^3 \},\,
+                \theta_4=\tr \{ \m{W}^2\m{S} \},\,
+                \theta_5=\tr \{ \m{W}^2\m{S}^2 \},\,
+                \theta_6=\tr \{\m{SW}\m{S}^2\m{W}^2 \} \text{,}$}
+    \end{equation}
+    \begin{equation}
+        \label{equ:bases}
+        \resizebox{0.9\linewidth}{!}{$\displaystyle
+                \m{T}^{(1)}=\m{S},\,
+                \m{T}^{(2)}=\m{SW}-\m{WS},\,
+                \m{T}^{(3)}=\m{S}^2-\tfrac{1}{3}\m{I}\tr \{\m{S}^2\},\,
+                \m{T}^{(4)}=\m{W}^2-\tfrac{1}{3}\m{I}\tr \{\m{W}^2\},\,
+                \m{T}^{(5)}=\m{W}\m{S}^2-\m{S}^2\m{W} \text{,}$}
+    \end{equation}
+\end{subequations}
+其中张量 $\m{S},\m{W}$ 为湍流时间尺度 $\mathcal{T}$ 归一化的平均应变率张量和旋转率张量, 即 $\m{S}=\mathcal{T}\tfrac{1}{2}\sbra{\nabla\bm{U}+\bra{\nabla\bm{U}}^{\top}}$ 和 $\m{W}=\mathcal{T}\tfrac{1}{2}\sbra{\nabla\bm{U}-\bra{\nabla\bm{U}}^{\top}}$。
+对于统计二维流动, 仅有前3个张量基是独立的~\citep{Pope_2000}。
+此外, 第三个张量基 $\m{T}^{(3)}$ 可被吸收到压力梯度项中~\citep{STROFER2021TAML,zhang2022}, 因此只剩下两个张量基。
+值得注意的是, 在实际的数据增强湍流建模中, 也可引入其他流动特征, 如归一化涡粘性系数及湍流动能产生与耗散之比, 作为系数函数 $\bm{g}(\bm{q})$ 的自变量~\citep{Wang2017PhysRevFluids, Fang2023, LAV2023109140}。
+此处, 记号 $\bm{q}$ 表示张量系数函数 $g^{(i)}$ 的增强输入, 其包含了标量不变量 $\theta_i$。
+
+本研究采用前馈神经网络构建从输入特征 $\bm{q}=[q_1,\cdots]^{\top}$ 到张量系数 $\bm{g}=[g^{(1)},\cdots]^{\top}$ 的映射, 即 $\bm{g}=\mathcal{N}\bra{\bm{q};\m{w}}$, 其中 $\m{w}$ 为神经网络权重。
+输入特征 $\bm{q}$ 需按 $\hat{q}_i=q_i/(1+\abs{q_i})$ 进行缩放~\citep{Ling2015}。
+通过此操作, 标量不变量的取值范围可限制在 $[-1, 1]$ 内, 从而增强了所学神经网络模型的鲁棒性~\citep{Ling2015,Wu2017PhysRevFluids, Liu2023,Fang2023}。
+
+
+湍流时间尺度可通过关系式 $\mathcal{T}=1/(C_\mu \omega)$ 进行估算，其中 $C_\mu = 0.09$，$\omega$ 为通过求解相应输运方程获得的比耗散率。在本研究中，比耗散率 $\omega$ 由 $k$-$\omega$ 剪切应力输运（SST）湍流模型~\citep{menter2003ten}给出。
+
+% % 湍流时间尺度可根据 $\mathcal{T}=1/(C_\mu \omega)$ 估算, 其中 $C_\mu = 0.09$, $\omega$ 为通过求解相应输运方程获得的比耗散率。
+% % 该 $\omega$ 方程可由 $k$-$\omega$ SST 湍流模型给出~\citep{menter2003ten}。
+% % In the $k$-$\omega$ shear stress transport (SST) model, the transport equations for $k$ and $\omega$ are formulated as
+在 $k$-$\omega$ SST 模型中，湍动能 $k$ 与比耗散率 $\omega$ 的输运方程分别定义为：
+\begin{subequations}
+    \begin{equation}
+        \frac{\p k}{\p t}+\bm{U}\cdot\nabla k={\mathcal{P}}-\beta^* k\omega+\nabla\cdot\sbra{\bra{\nu+\nu_\turb \sigma_k}\nabla k},
+    \end{equation}
+    \begin{equation}
+        \frac{\p\omega}{\p t}+\bm{U}\cdot\nabla\omega=\alpha\mathcal{S}^2-\beta\omega^2+\nabla\cdot\sbra{\bra{\nu+\nu_\turb\sigma_\omega}\nabla\omega}+2\bra{1-F_1}\sigma_{\omega2}\frac{1}{\omega}\nabla k\cdot\nabla\omega,
+    \end{equation}
+\end{subequations}
+% % where $\nu_\text{t}$ is the turbulent eddy viscosity constructed by
+其中，湍流涡粘系数 $\nu_\text{t}$ 构建如下：
+\begin{equation*}
+    \nu_\text{t}=\frac{a_1 k}{\max\bra{a_1\omega,\mathcal{S}F_2}} \text{.}
+\end{equation*}
+% % The turbulent kinetic energy production ${\mathcal{P}}$ is
+湍动能生成项 ${\mathcal{P}}$ 定义为：
+\begin{equation*}
+    {\mathcal{P}}=\min\bra{\bm{\tau}:\nabla\bm{U},10\beta^* k\omega},
+\end{equation*}
+% % where $\mathcal{S}=\sqrt{S_{ij}S_{ij}}$ is the mean strain rate.
+% % The symbols $F_1,F_2$ represent the blending functions as
+其中 $\mathcal{S} = \sqrt{S_{ij} S_{ij}}$ 代表平均应变率模量。混合函数 $F_1$ 与 $F_2$ 分别定义为：
+\begin{equation*}
+    \begin{aligned}
+        F_1          & =\tanh\cbra{\cbra{\min\bra{\max\bra{\frac{\sqrt{k}}{\beta^* \omega y},\frac{500\nu}{y^2\omega}},\frac{4\sigma_{\omega 2}k}{CD_{k\omega} y^2}}}^4}, \\
+        F_2          & =\tanh\cbra{\cbra{\max\bra{\frac{2\sqrt{k}}{\beta^*\omega y},\frac{500\nu}{y^2\omega}}}^2},                                                        \\
+        CD_{k\omega} & =\max\bra{2\sigma_{\omega 2}\frac{1}{\omega}\nabla k\cdot\nabla \omega,\num{1.e-10}},
+    \end{aligned}
+\end{equation*}
+其中 $y$ 为至最近壁面的距离。模型参数 $\phi$ 通过 $k$-$\omega$ 模型（$\phi_1$）与 $k$-$\varepsilon$ 模型（$\phi_2$）对应的参数进行线性混合：$\phi = \phi_1 F_1 + \phi_2 (1-F_1)$。具体的混合系数 $\alpha, \beta, \sigma_k, \sigma_\omega$ 分别由 $(\alpha_1=5/9, \beta_1=3/40, \sigma_{k1}=0.85, \sigma_{\omega 1}=0.5)$ 与 $(\alpha_2=0.44, \beta_2=0.0828, \sigma_{k2}=1, \sigma_{\omega 2}=0.856)$ 混合得到。其他常数设置为 $\beta^*=0.09$，$a_1=0.31$。
+
+% % where $y$ is the distance to the nearest wall.
+% % The parameters~$\phi$ are calculated by blending the counterpart of $k$-$\omega$ model ($\phi_1$) and $k$-$\varepsilon$ model ($\phi_2$) as $\phi=\phi_1 F_1+\phi_2 F_2.$
+% % The coefficients $\alpha, \beta, \sigma_k, \sigma_\omega$ are blends of $(\alpha_1=5/9, \beta_1=3/40, \sigma_{k1}=0.85, \sigma_{\omega 1}=0.5),(\alpha_2=0.44, \beta_2=0.0828, \sigma_{k2}=1, \sigma_{\omega 2}=0.856)$, respectively.
+% % Other parameters are set as $\beta^*=0.09, a_1=0.31$.
+
+此外，在 RANS 模拟的每个迭代步中，基于无量纲张量 $\bm{S}$ 与 $\bm{W}$ 构造标量不变量及相关的流动特征。
+这些输入特征向量 $\bm{q}$ 被传递至神经网络，用于预测张量系数 $\bm{g}$，进而基于式~\eqref{eq:b} 计算雷诺应力各向异性张量 $\bm{b}$。
+最终，由此获得的雷诺应力用于封闭 RANS 方程，从而实现对平均流场的高保真预测。
+
+% % 此外, 在RANS模拟的每个时间步中, 使用无量纲张量 $\m{S}$ 和 $\m{W}$ 来构造标量不变量及其他流动特征。
+% % 这些输入特征 $\bm{q}$ 通过神经网络传递至张量系数 $\bm{g}$, 并进一步基于式~\eqref{eq:b} 得到Reynolds应力各向异性 $\m{b}$。
+% % 最终, 获得的Reynolds应力用于封闭RANS方程并提供平均流场的预测。
+
+
+\subsection{基于集合Kalman方法从间接数据中训练神经网络模型}
+
+% % 通过将RANS计算纳入训练过程, 可以利用间接观测数据训练基于神经网络的湍流模型~\citep{zhang2022,zhang2023combining}。
+% % 这等同于通过最小化RANS计算结果 $\mathcal{H}\sbra{\m{w}}$ 与间接训练数据 $\m{y}$ 之间的误差度量来优化神经网络权重 $\m{w}$, 即:
+% 通过将 RANS 求解过程耦合进训练循环，可以有效利用间接观测数据对基于神经网络的湍流模型进行闭环优化~\citep{zhang2022, zhang2023combining}。
+% 这一过程本质上是在模型参数空间内寻找最优神经网络权重 $\bm{w}$，以最小化 RANS 计算结果 $\mathcal{H}[\bm{w}]$ 与间接观测数据 $\bm{y}$ 之间的残差：
+% \begin{equation}
+%     \mathop{\arg\min} \limits_{\m{w}} J=\|\m{y}-\mathcal{H}\sbra{\m{w}}\| \text{,}
+% \end{equation}
+% 其中，模型算子 $\mathcal{H}$ 封装了从神经网络输出到 RANS 求解及后续后处理获取观测预测量的全过程，$\|\cdot\|_2$ 表示 $\mathrm{L}^2$ 范数。
+
+% % 其中 $\mathcal{H}$ 是将神经网络权重映射至平均流场预测的模型算子, 算子 $\|\Box\|$ 表示 $\mathrm{L}^2$ 范数。
+
+
+% % 实际上, 算子 $\mathcal{H}$ 结合了RANS求解器与后续后处理步骤以获得模型预测。
+% % 集成Kalman方法~\citep{strofer2021ensemble,zhang2022} 是一种基于集成的统计推断方法, 正逐渐用于神经网络模型的学习~\citep{Kovachki_2019}。
+% % 该方法利用模型输入和输出的样本统计量来近似代价函数的梯度, 从而避免了传统基于伴随方法~\citep{Duraisamy2021} 中开发伴随求解器的额外工作。
+% % 这与不利用梯度信息的进化优化方法形成鲜明对比。
+% % 集成Kalman方法的更新方案可基于集成梯度与Hessian矩阵推导得到~\citep{luo2015iterative}。
+% % 其公式可表述为:
+
+集合 Kalman 方法（Ensemble Kalman Method）~\citep{strofer2021ensemble, zhang2022} 作为一种基于统计推断的优化算法，正逐渐被应用于复杂神经网络的参数学习~\citep{Kovachki_2019}。该方法通过模型输入与输出样本的二阶统计量来近似代价函数的梯度方向，从而规避了传统伴随方法~\citep{Duraisamy2021} 中开发复杂伴随求解器的沉重负担。与完全不利用梯度趋势的进化算法相比，集成 Kalman 方法基于集成梯度与 Hessian 矩阵的二阶推导~\citep{luo2015iterative}，具有更高的收敛效率。其权重更新方案可表述为：
+\begin{equation}
+    \m{w}_j^{\ell+1}=\m{w}_j^\ell+\m{K}\bra{\m{y}_j-\mathcal{H}\sbra{\m{w}_j^\ell}} \text{,}
+\end{equation}
+% % 其中 $\ell$ 为迭代索引, $\m{K}$ 是基于模型输入与输出之间样本协方差的Kalman增益矩阵。
+% % 在实际实现中, Kalman增益矩阵通过下式计算~\citep{zhang2022}:
+其中 $\ell$ 为迭代步索引，$\bm{K}$ 为 Kalman 增益矩阵，反映了模型参数空间与观测空间之间的互协方差贡献。
+在具体数值实现中，Kalman 增益通过下式计算~\citep{zhang2022}：
+\begin{equation}
+    \m{K}=\m{S}_\mathrm{w}\m{S}_\mathrm{y}^{\top}\bra{\m{S}_\mathrm{y}\m{S}_\mathrm{y}^{\top}+\m{R}}^{-1},
+\end{equation}
+% % 其中 $\m{S}_\mathrm{w}$ 和 $\m{S}_\mathrm{y}$ 分别为神经网络权重和模型预测的平方根矩阵。
+% % 这些矩阵可通过下式计算得到:
+其中 $\bm{R}$ 为观测噪声协方差矩阵，$\bm{S}_\mathrm{w}$ 与 $\bm{S}_\mathrm{y}$ 分别为网络权重与预测响应的平方根矩阵（即扰动矩阵）：
+\begin{subequations}
+    \begin{equation}
+        \m{S}^\ell_\mathrm{w}=\frac{1}{N-1}\sbra{\m{w}_1^\ell-\rey{\m{w}}^\ell,\cdots,\m{w}_N^\ell-\rey{\m{w}}^\ell},
+    \end{equation}
+    \begin{equation}
+        \m{S}^\ell_\mathrm{y}=\frac{1}{N-1}\sbra{\mathcal{H}\sbra{\m{w}_1^\ell}-\rey{\mathcal{H}\sbra{\m{w}^\ell}},\cdots,\mathcal{H}\sbra{\m{w}_N^\ell}-\rey{\mathcal{H}\sbra{\m{w}^\ell}}},
+    \end{equation}
+\end{subequations}
+其中 $N$ 为集成样本数量，$\overline{\Box}$ 代表样本均值。
+% 详细的训练流程如图示于第~\ref{sec:procedure} 节。
+本研究采用 DAFI 库~\citep{strofer2021dafi} 实现该算法。
+需要强调的是，尽管本研究侧重于稀疏观测的稳态应用，但当观测维数或模型参数维数远大于集成样本数时，集成 Kalman 方法易遭遇“样本坍缩（Ensemble Collapse）”问题。有限的样本容量会在远距离变量间诱发伪相关性（Spurious Correlation），进而导致滤波器发散~\citep{chen2010cross, zhang2022}。为此，本框架引入了基于相关性的局部化技术（Localization）~\citep{Luo2018}，通过施加空间或特征相关的距离权重来抑制伪相关性，从而确保算法能够稳健地处理大规模训练数据集。
+
+% % 其中 $N$ 为样本数量, 算子 $\overline{\Box}$ 表示样本均值。
+% % 详细的训练步骤图示于第~\ref{sec:procedure} 节。
+% % 我们使用DAFI库~\citep{strofer2021dafi}来实现基于集成的Kalman方法。
+% % 需指出, 本研究主要关注具有稀疏数据的稳态应用。
+% % 然而, 当观测数据(例如DNS数据)和模型变量(例如神经网络权重)的维度显著超过样本数量时, 集成Kalman方法可能遭遇样本坍缩问题。
+% % 有限的样本会导致模型变量与观测值之间出现伪高协方差, 从而引发集成坍缩~\citep{chen2010cross,zhang2022}。
+% % 可采用基于相关性的局部化技术~\citep{Luo2018} 来缓解此问题, 使得集成Kalman方法能够有效处理大规模训练数据集。
+
+% % Given the initial neural network weight~$\m{w}_0$ and the standard deviations of initial samples and the observation data~$\m{y}$, the ensemble-based neural network training consists of the following steps.
+在给定初始神经网络权重 $\bm{w}_0$、初始样本标准差以及观测数据 $\bm{y}$ 的前提下，基于集成的神经网络训练框架主要包含以下关键步骤：
+\begin{itemize}
+    \item [(a)] \textbf{初始采样（Initial Sampling）}：各样本对应的神经网络权重通过在高斯分布中采样确定，该分布以 $\bm{w}_0$ 为均值，并根据用户定义的标准差进行扰动。值得注意的是，初始权重 $\bm{w}_0$ 经过预训练处理，通过确保第一项张量系数 $g^{(1)}=-0.09$ 且其他基底系数为零，使神经网络在初始阶段的功能与基准模型（Baseline Model）完全一致。样本数量与标准差的取值经过敏感性研究确定，旨在平衡训练精度与计算效率。
+    \item [(b)] \textbf{特征提取（Feature Extraction）}：基于当前速度场 $\bm{U}$ 与湍流时间尺度 $1/(C_\mu \omega)$，根据式~\eqref{equ:invariants} 与式~\eqref{equ:bases} 构建标量不变量 $\theta_i$ 与张量基底 $\bm{T}^{(i)}$。随后，对标量不变量进行局部归一化处理，使其取值范围限制在 $[-1,1]$ 区间，作为神经网络的输入。
+    \item [(c)] \textbf{模型评估（Model Evaluation）}：在 RANS 模拟的每个迭代步中，雷诺应力通过线性组合张量基底 $\bm{T}^{(i)}$ 及其对应的系数 $g^{(i)}$ 构建而成，其中系数 $g^{(i)}$ 由神经网络实时预测生成。
+    \item [(d)] \textbf{前向传播（Forward Propagation）}：在获得更新的雷诺应力场后，通过求解 RANS 方程组及湍流输运方程，更新下一时间步的速度场 $\bm{U}$、湍动能 $k$ 以及湍流频率 $\omega$。
+    \item [(e)] \textbf{Kalman 更新（Kalman Update）}：利用集成 Kalman 方法，结合流场预测值与实验测量值对神经网络权重进行迭代更新：
+          \begin{equation}
+              \bm{w}_j^{\ell+1} = \bm{w}_j^\ell + \bm{K} \left( \bm{y}_j - \mathcal{H}[\bm{w}_j^\ell] \right),
+          \end{equation}
+          其中 $\bm{w}_j^\ell$ 代表第 $\ell$ 次训练迭代中第 $j$ 个样本的网络权重，$\bm{K}$ 为 Kalman 增益矩阵，$\bm{y}$ 为观测数据，$\mathcal{H}[\bm{w}_j^\ell]$ 为对应的模型预测响应。
+\end{itemize}
+
+% % \begin{itemize}
+% %     \item [(a)] Initial sampling. The neural network weights for each sample are determined by sampling from a Gaussian distribution with a mean of $\m{w}_0$ and a user-specified standard deviation. The initial weight $\m{w}_0$ is pre-trained to make the neural network function exactly as the baseline model by ensuring $g^{(1)}=-0.09$ and the coefficients of other bases equal to zero.
+% %           The number of samples and the standard deviation value are determined based on our sensitivity study to balance training accuracy and efficiency.
+% %     \item [(b)] Feature extraction. The scalar invariants $\theta_i$ and tensor bases $\m{T}^{(i)}$ are obtained from velocity field $\bm{U}$ and turbulence time scale $1/(C_\mu \omega)$ as Eqs.\eqref{equ:invariants} and \eqref{equ:bases}.
+% %           The scalar invariants are then locally normalized  to have a range in $[-1,1]$ as inputs for the neural network.
+% %     \item [(c)] Model evaluation. At each time step of the RANS simulation, the Reynolds stress is constructed by combining the bases $\m{T}^{(i)}$ and coefficients $g^{(i)}$ that are predicted by a neural network.
+% %     \item [(d)] Forward propagation. With Reynolds stress provided, the velocity $\bm{U}$, turbulent kinetic energy $k$, and turbulence frequency $\omega$ are updated for the next time step by solving RANS equations and the turbulence transport equations.
+% %     \item [(e)] Kalman update. The weights of neural networks are updated with the ensemble Kalman method by analyzing the flow predictions and the experimental measurements, i.e.
+% %           \begin{equation}
+% %               \m{w}_j^{\ell+1}=\m{w}_j^\ell+\m{K}\bra{\m{y}_j-\mathcal{H}\sbra{\m{w}_j^\ell}},
+% %           \end{equation}
+% %           where $\m{w}_j^\ell$ is the weight of neural network for sample $j$ at training iteration step $\ell$, $\m{K}$ is the Kalman gain matrix, $\m{y}$ is the observation data, and $\mathcal{H}\sbra{\m{w}_j^\ell}$ is the model prediction.
+% % \end{itemize}
+
+\subsection{置换特征重要性}
+
+% 特征重要性分析常被用于增强神经网络的可解释性, 它通过提供每个输入特征对模型预测的贡献值来实现这一目的~\citep{Wang2017PhysRevFluids,MANDLER2023}。
+% 在本研究中, 我们利用特征重要性分析来促进从黑盒神经网络模型到白盒符号模型的转化。
+% 该特征分析方法能够为后续的符号回归识别重要特征, 从而简化回归问题并提高训练效率。
+
+% 置换特征重要性(Permutation Feature Importance, PFI)是一种特征分析方法, 其能够基于指定的表格数据集, 量化输入特征对已拟合模型统计效能的个体影响。
+% 该方法通过随机打乱单个特征的数值, 并随后评估由此导致的模型性能下降程度来实现~\citep{breiman_random_2001}。
+% 这种通过破坏输入特征与模型预测之间内在联系的方式, 能够确定模型对某一特定特征的依赖程度。
+
+% PFI方法的流程如图~\ref{alg:pfi-alg} 所示。
+% 输入包括一个训练好的基于神经网络的湍流模型 $\phi$、一个特征矩阵 $X$ 以及目标数据 $Y$。
+% 其中, $X$ 表示输入特征的数据集, 每个数据点对应于单个CFD网格单元; $Y$ 表示模型在数据 $X$ 上的输出。
+% 首先, 使用原始特征矩阵 $X$ 和目标数据 $Y$ 计算模型误差 $e$。
+% 接着, 对于每个特征 $q_i$, 通过对 $X$ 中 $q_i$ 的数值进行随机置换生成一个置换后的特征矩阵 $X_i'$, 并在置换数据上重新计算误差 $e'_i$。
+% 特征 $q_i$ 的重要性由误差的差值决定, 即 $\psi_i=\|e'_i - e\|$, 该差值量化了模型性能对每个特征置换的敏感性。
+% 对所有特征重复此过程, 以计算整体的重要性排序。
+
+特征重要性分析是增强神经网络可解释性的常用技术，其核心在于量化每个输入特征对模型预测结果的贡献程度~\citep{Wang2017PhysRevFluids,MANDLER2023}。
+本研究引入该分析方法的目的是，借助特征重要性识别，将原本的黑箱神经网络模型转化为更具可解释性的白箱符号模型。
+通过筛选出对模型输出具有关键影响的特征，特征重要性分析能够为后续的符号回归提供精准的输入，从而降低回归问题的复杂度，并提升符号回归的训练效率与稳定性。
+
+置换特征重要性（Permutation Feature Importance, PFI）是一种广泛采用的特征分析方法，其目标是在给定的表格数据集上，定量评估每个输入特征对已训练模型统计性能的独立影响。
+该方法的核心思想是：通过随机打乱某一特征的数值，破坏该特征与模型预测结果之间的内在关联，进而观测模型性能的下降幅度~\citep{breiman_random_2001}。
+性能下降越显著，表明模型对该特征的依赖程度越高，即该特征对模型输出的重要性越大。
+
+PFI 方法的执行流程如图~\ref{alg:pfi-alg} 所示。
+输入包括一个已训练好的基于神经网络的湍流模型 $\phi$，一个特征矩阵 $X$，以及对应的目标数据 $Y$。
+其中，特征矩阵 $X$ 包含所有输入特征，其每一行对应 CFD 模拟中的一个网格单元；目标数据 $Y$ 则为模型在原始输入上产生的输出。
+具体步骤如下：
+首先，在原始特征矩阵 $X$ 和目标数据 $Y$ 上计算模型的基准误差 $e$。
+随后，对每个特征 $q_i$ 执行以下操作：随机打乱特征矩阵 $X$ 中第 $i$ 列（即特征 $q_i$）的数值，生成一个新的置换特征矩阵 $X_i'$；
+然后，利用该置换后的数据重新计算模型误差 $e'_i$。
+特征 $q_i$ 的重要性得分定义为置换前后误差的差值，即 $\psi_i = \|e'_i - e\|$。
+该差值反映了模型性能对于该特征扰动的敏感程度：差值越大，说明该特征对维持模型性能越关键。
+对所有特征重复上述步骤，最终可得到所有特征的重要性排序。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/PFI-alg.png}
+    \bicaption{置换特征重要性(PFI)算法。}{The permutation feature importance (PFI) algorithm.}
+    \label{alg:pfi-alg}
+\end{figure}
+
+\subsection{基于物理启发的符号回归}
+
+% 符号回归可用于从神经网络模型生成的数据中, 学习由已识别重要特征构成的数学表达式。
+% 对于符号回归而言, 函数可以表示为逆波兰记法下的符号字符串, 以避免使用括号。
+% 然而, 随着这些字符串长度的增加, 可能的组合数量呈指数级增长, 使得暴力搜索方法不切实际。
+
+% 为解决这一挑战, 常采用受生物学启发的策略, 例如遗传算法~\citep{dubvcakova2011eureqa}, 通过变异、选择、继承和重组来搜索最优表达式。
+% 已有诸多研究~\citep{WEATHERITT201622, ZHAO2020, LAV2023109140, Fang2023} 利用基因表达式编程(GEP)来寻找张量系数的符号表达式。
+% 此外, 一种受物理学启发的策略, 即AI Feynman~\citep{Silviu2020}, 被提出用于通过分治策略寻找数学表达式。
+% 具体而言, 该方法基于数据中的对称性和可分离性等物理推理, 递归地将复杂问题分解为变量更少的简单问题。
+% 相较于受生物学启发的策略, 该方法可能相对高效~\citep{Silviu2020}。
+% 因此, 在本研究中, 我们采用此方法从神经网络生成的数据中学习符号模型。
+
+符号回归是一种从数据中发掘数学表达式的技术，在本研究中，其目标是从神经网络生成的数据中，学习由已识别重要特征构成的数学表达式。
+在符号回归中，函数常以逆波兰表示法（Reverse Polish Notation, RPN）的形式编码为符号字符串，以避免括号带来的复杂性。
+然而，随着目标表达式长度的增加，可能的符号组合数量呈指数级增长，这使得穷举搜索策略在实际应用中不可行。
+为应对这一组合爆炸的挑战，研究者们发展出多种启发式搜索策略。其中，受生物学启发的遗传算法~\citep{dubvcakova2011eureqa} 被广泛采用，它通过模拟自然选择过程中的变异、选择、继承和重组等机制，在巨大的解空间中高效搜索最优表达式。
+在湍流建模领域，已有诸多研究~\citep{WEATHERITT201622, ZHAO2020, LAV2023109140, Fang2023} 成功应用基因表达式编程（Gene Expression Programming, GEP）来发现张量系数的符号表达式。
+近年来，一种受物理学启发的全新策略——AI Feynman~\citep{Silviu2020} 被提出。该方法采用分治策略，通过识别数据中蕴含的对称性、可分离性等物理特性，递归地将包含多变量的复杂问题分解为变量更少的简单子问题，从而逐步构建出完整的数学表达式。
+研究表明，得益于其物理推理的引导，AI Feynman 方法相较于传统的生物学启发式策略，在求解效率上具有潜在优势~\citep{Silviu2020}。
+鉴于此，本研究采用 AI Feynman 方法，从神经网络生成的数据中学习具有可解释性的符号模型。
+
+% AI Feynman方法假设在物理学中遇到的函数 $f(x_1,x_2,\cdots)$ 通常表现出以下简化性质:
+% \begin{itemize}
+%     \item [(1)] 函数 $f$ 或其一部分是低次多项式。
+%           该性质便于进行多项式拟合, 允许通过求解线性方程组快速确定多项式系数。
+%     \item [(2)] 函数 $f$ 在其定义域内连续, 这有助于使用配备光滑激活函数的前馈神经网络来近似 $f$。
+%     \item [(3)] 函数 $f$ 关于某些变量表现出平移或缩放对称性。
+%           这有助于将回归问题转化为具有更少自变量的简单问题。
+%     \item [(4)] 函数 $f$ 可表示为两个部分的和或积, 且每个部分不包含任何共享变量。
+%           这允许将自变量划分为两个独立的集合, 从而将回归问题转化为两个简单问题。
+% \end{itemize}
+
+AI Feynman 方法的核心假设是，物理学中遇到的函数 $f(x_1,x_2,\cdots)$ 通常表现出以下一种或多种简化性质:
+\begin{itemize}
+    \item [(1)] 函数 $f$ 或其一部分是低次多项式。
+          该性质便于进行多项式拟合，允许通过求解线性方程组快速确定多项式系数。
+    \item [(2)] 函数 $f$ 在其定义域内连续，这有助于使用配备光滑激活函数的前馈神经网络来近似 $f$。
+    \item [(3)] 函数 $f$ 关于某些变量表现出平移或缩放对称性。
+          这有助于将回归问题转化为具有更少自变量的简化问题。
+    \item [(4)] 函数 $f$ 可表示为两个部分的和或积，且每个部分不包含任何共享变量。
+          这允许将自变量划分为两个独立的集合，从而将原回归问题分解为两个更简单的子问题。
+\end{itemize}
+
+% 整体算法如图~\ref{fig:AI-Feynman}(a)所示。
+% 该方法包含一系列模块, 每个模块旨在利用上述各项性质。
+% 当整个问题无法直接求解时, 该方法会尝试将其分解并简化为可处理的子问题。
+% 随后, 算法递归地应用于每个子问题。
+% 下文将简要阐述AI Feynman~\citep{Silviu2020} 中所使用的各个模块。
+
+整体算法框架如图~\ref{fig:AI-Feynman}(a)所示。
+该方法由一系列功能模块构成，每个模块均旨在利用上述列举的某一类函数简化性质。
+当整个问题无法直接求解时，该方法会尝试将其分解并简化为更易处理的子问题。
+随后，算法被递归地应用于每个子问题，直至所有子问题均得到求解。
+下文将简要阐述AI Feynman~\citep{Silviu2020} 方法中所使用的各个核心模块。
+
+\begin{enumerate}[label=(\alph*)]
+    \item \textbf{多项式拟合。
+          }
+          该模块旨在检验当前问题是否可以用低阶多项式进行精确表达。
+          它采用多项式回归方法，通过求解线性方程组确定多项式系数，以获得与观测数据的最佳吻合。
+
+    \item \textbf{暴力搜索。
+          }
+          %   该模块旨在为已被其他模块分解为更简单组分的问题寻找符号表达式。
+          %   它系统性地测试所有可能的符号表达式, 并使用逆波兰记法将其表示为符号字符串以避免括号的使用。
+          该模块旨在为已被其他模块分解为更简单组分的问题寻找精确的符号表达式。
+          它系统性地枚举并测试所有可能的符号表达式组合，并使用逆波兰表示法（Reverse Polish Notation, RPN）将这些表达式编码为无括号的符号字符串，以简化搜索过程。
+    \item \textbf{训练神经网络。
+          }
+          %   该模块旨在训练一个神经网络, 以在现有数据点之间进行高维插值。
+          %   借助训练好的神经网络, 我们可以在数据点不可用的位置 $(x_1,x_2,\cdots,x_n)$ 处评估函数 $f$, 从而检验数据中的对称性与可分离性。
+          %   本研究所采用的神经网络架构由AI-Feynman代码推荐, 它是一个包含六个隐藏层的前馈全连接模型, 使用softplus激活函数。
+          该模块旨在训练一个神经网络，以在现有数据点之间进行高维插值。
+          借助训练好的神经网络，我们可以在原始数据点不可用的位置 $(x_1,x_2,\cdots,x_n)$ 处评估函数 $f$ 的值，从而为后续检验数据中的对称性与可分离性提供必要的函数值支撑。
+          本研究所采用的神经网络架构由AI-Feynman官方代码推荐，它是一个包含六个隐藏层的前馈全连接网络，并采用Softplus激活函数。
+
+    \item \textbf{检查对称性。
+          }
+          %   如果对于指定精度内的一系列常数 $c$, 均有 $f(x_1,x_2,\cdots,x_n)=f(x_1+c,x_2+c,\cdots,x_n)$, 则函数满足平移对称性。
+          %   这意味着函数 $f$ 依赖于 $x_1$ 与 $x_2$ 之间的差值。
+          %   因此, 这两个变量可以简化为一个新变量 $x'_1\equiv x_2-x_1$。
+          %   类似地, 测试所有输入变量对, 以确定是否存在变量对可被其和(加法对称性) 、积(乘法对称性)或比值(缩放对称性)所替代。
+          该模块旨在识别函数输入变量间存在的对称性关系，从而实现对变量的简化。
+          例如，若对于给定精度内的一系列常数 $c$，函数满足 $f(x_1,x_2,\cdots,x_n)=f(x_1+c,x_2+c,\cdots,x_n)$，则表明函数具有平移对称性，即函数 $f$ 实际上仅依赖于 $x_1$ 与 $x_2$ 之间的差值。
+          此时，这两个变量可合并为一个新变量 $x'_1\equiv x_2-x_1$。
+          类似地，该模块会遍历所有输入变量对，以判断是否存在可由其和（加法对称性）、积（乘法对称性）或比值（缩放对称性）替代的变量组合，从而降低问题的维度。
+
+    \item \textbf{检查可分离性。
+          }
+          %   如果一个函数可以分解为两个不共享变量的部分, 则该函数是可分离的。
+          %   系统会测试加法可分离性与乘法可分离性。
+          %   以乘法可分离性为例, 通过在每个数据点~$x$ 处, 针对不同的常数 $c$, 计算以下量进行评估:
+          如果一个多元函数可以分解为两个不共享任何变量的独立部分之组合，则该函数是可分离的。
+          该模块分别检验加法可分离性（即 $f = g + h$）与乘法可分离性（即 $f = g \times h$）。
+          以乘法可分离性为例，通过在每个数据点~$x$ 处，针对不同的常数 $c$，计算以下残差量进行评估：
+          \begin{equation*}
+              \Delta_{\text{sep}}\equiv \abs{f(x_1,x_2)-\frac{f(x_1,c_2)f(c_1,x_2)}{f(c_1,c_2)}}
+          \end{equation*}
+          %   其中算子 $\abs{\Box}$ 表示绝对值。
+          %   如果平均 $\Delta_{\text{sep}}$ 低于预设阈值, 则认为该函数是乘法可分离的。
+          其中算子 $\abs{\Box}$ 表示绝对值。
+          若所有测试点上的平均 $\Delta_{\text{sep}}$ 低于预设阈值，则认为该函数具有乘法可分离性，从而可将原问题分解为两个独立的子问题分别求解。
+
+    \item \textbf{数据变换。
+          }
+          %   若问题仍未解决, 则对自变量和因变量应用多种变换。
+          %   这些变换可能有助于暴力搜索模块识别潜在的模型表达形式。
+          %   变量将使用以下函数进行变换: 平方根、平方、对数、指数、倒数、正弦、余弦、反正弦、反余弦和反正切。
+          若经过上述所有模块后问题仍未得到解决，则对自变量和因变量应用一系列非线性变换。
+          这些变换旨在将原始数据映射到更易于符号回归的形式，从而帮助暴力搜索模块识别潜在的模型表达。
+          变量将使用以下函数进行变换：平方根、平方、对数、指数、倒数、正弦、余弦、反正弦、反余弦和反正切。
+          变换后的数据将重新输入算法流程，开始新一轮的递归求解。
+\end{enumerate}
+
+% 我们在图~\ref{fig:AI-Feynman}(b)中展示了一个示例, 以阐明AI Feynman算法发现具有对称性和可分离性属性的符号表达式的过程。
+% 管道的热传导速率可根据长度 $L$、内外半径 $r_1, r_2$ 以及均匀壁温 $T_1, T_2$ 计算为 $2\pi \kappa L(T_1-T_2)/\ln(r_1/r_2)$。
+% 为找出此符号表达式, 首先训练一个神经网络以拟合给定数据, 揭示了平移对称性、缩放对称性和乘法可分离性。
+% 进一步地, 平移对称性可通过定义 $T=T_1-T_2$ 消除一个变量, 而缩放对称性则通过定义 $r=r_2/r_1$ 消除另一个变量。
+% 乘法可分离性允许进行因式分解 $\mathcal{F}(L,T,r)=G(L,T)H(r)$, 从而将问题拆分为两个更简单的子问题。
+% 最终, 函数 $G(L,T)$ 可通过多项式拟合求解为 $G(L,T)=2\pi\kappa LT$, 而函数 $H(r)$ 则在应用逆数据变换后, 通过暴力搜索确定为 $H(r)=\ln r$。
+
+我们在图~\ref{fig:AI-Feynman}(b)中展示了一个具体示例，用以阐明AI Feynman算法如何利用对称性和可分离性，逐步发现复杂物理过程的符号表达式。
+本例考虑圆管中的热传导问题：单位时间内通过管壁的热传导速率可表示为长度 $L$、内外半径 $r_1, r_2$ 以及均匀壁温 $T_1, T_2$ 的函数，其解析形式为 $2\pi \kappa L(T_1-T_2)/\ln(r_1/r_2)$。
+
+为从数据中自动发现这一表达式，算法首先训练一个神经网络以拟合给定的数据点。基于训练好的神经网络，算法逐步识别出数据中蕴含的简化性质：平移对称性：函数值仅依赖于温差 $T_1-T_2$，而非温度的绝对值。通过引入新变量 $T \equiv T_1 - T_2$，可消除一个冗余变量。{缩放对称性}：函数值仅依赖于半径比值 $r_2/r_1$，而非单个半径值。通过引入新变量 $r \equiv r_2/r_1$，可进一步降低变量维度。{乘法可分离性}：函数可分解为两个独立部分的乘积 $\mathcal{F}(L,T,r)=G(L,T)H(r)$，从而将原问题拆分为两个更简单的子问题。
+在完成变量简化和问题分解后，算法分别求解两个子问题：对于函数 $G(L,T)$，由于其形式简单，可通过多项式拟合直接求解为 $G(L,T)=2\pi\kappa LT$。对于函数 $H(r)$，在应用逆数据变换后，通过暴力搜索模块最终确定为 $H(r)=1/\ln r$。
+将两部分组合并还原原始变量，即可得到完整的热传导速率表达式 $2\pi \kappa L(T_1-T_2)/\ln(r_1/r_2)$，与理论解完全一致。
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/aifeynman-flowchart-and-example.pdf}
+    \bicaption{(a) 用于符号回归的AI Feynman算法流程图。(b) AI Feynman算法学习符号表达式的示例。
+        AI Feynman方法依次使用多项式拟合、暴力搜索、对称性和可分离性模块。
+        当整个问题无法直接求解时, 可将其分解为更简单的子部分, 并对每个子部分递归应用完整算法。}{(a) Flowchart of AI Feynman algorithm for symbolic regression. (b) An example of AI Feynman algorithm for learning symbolic expressions.
+        The AI Feynman method sequentially uses modules of polynomial fit, brute force, symmetry, and separability.
+        The entire problem can be broken down into simpler parts and recursively applies the full algorithm for each part once it cannot be solved.}
+    \label{fig:AI-Feynman}
+\end{figure}
+
+\section{方法验证: 方管流中的二次流预测}
+\label{sec:III}
+我们采用两个案例来展示所提方法在通过结合特征重要性分析的神经网络寻找符号湍流模型方面的能力。
+第一个案例是方管中的二次流, 我们使用基于Shih二次模型~\citep{shih1993realizable} 的RANS预测生成的合成数据。
+此案例旨在展示该方法从间接观测数据中发现底层符号表达式的能力。
+
+\subsection{训练算例设置}
+
+
+
+% 我们首先展示所提方法在方管流动中, 从间接观测数据中发现底层解析模型的能力。
+% 在方管内充分发展的湍流中, 由于Reynolds应力分量(即 $\tau_{yy}-\tau_{zz}$)的不平衡, 会产生二次流。
+% 已有研究表明, 线性涡粘性模型无法预测二次流 \citep{SPEZIALE1982863,Speziale_1987}, 因此需要使用非线性涡粘性模型来捕捉Reynolds应力的各向异性。
+% 此外, 该流动案例本质上是三维的, 包含六个标量不变量 $\bm{\theta}$, 这可以验证PFI方法排除非重要特征的能力。
+% 我们使用基于Shih二次模型 \citep{shih1993realizable} 的RANS模拟速度预测作为训练数据。
+% Shih二次模型基于前两个标量不变量 $\bm{\theta}$, 提供了前四个张量系数 $\bm{g}$ 的数学表达式, 具体如下:
+我们首先展示所提方法在方管流动案例中的有效性，即从间接观测数据中自动发现底层解析模型的能力。
+在方管内充分发展的湍流中，由于Reynolds应力分量的不平衡（具体表现为 $\tau_{yy}-\tau_{zz} \neq 0$），会产生垂直于主流方向的二次流动。
+已有研究表明，传统的线性涡粘性模型无法预测此类二次流现象 \citep{SPEZIALE1982863,Speziale_1987}，因此必须采用非线性涡粘性模型来准确刻画Reynolds应力的各向异性特性。
+此外，该流动案例本质上是三维的，其本构关系涉及六个标量不变量 $\bm{\theta}$ 作为输入特征，这为验证本文提出的置换特征重要性（PFI）方法能否有效识别并筛选非重要特征提供了理想的测试平台。
+
+在本研究中，我们使用基于Shih二次模型 \citep{shih1993realizable} 的RANS模拟速度场作为训练数据。
+Shih二次模型基于前两个标量不变量 $\bm{\theta}$，给出了前四个张量系数 $\bm{g}$ 的显式数学表达式，具体形式如下:
+\begin{equation}
+    \begin{aligned}
+        g^{(1)}(\theta_1,\theta_2) & =\frac{-2/3}{1.25+\sqrt{2\theta_1}+0.9\sqrt{-2\theta_2}}, \\
+        g^{(2)}(\theta_1)          & =\frac{7.5}{1000+\bra{2\theta_1}^{3/2}},                  \\
+        g^{(3)}(\theta_1)          & =\frac{1.5}{1000+\bra{2\theta_1}^{3/2}},                  \\
+        g^{(4)}(\theta_1)          & =\frac{-9.5}{1000+\bra{2\theta_1}^{3/2}} \text{,}
+    \end{aligned}
+\end{equation}
+% 其中 $\theta_1$ 和 $\theta_2$ 为无量纲平均应变率和旋转率的不变量, 其定义如式\eqref{equ:invariants}所示。
+% 在此案例中, 我们旨在展示所提出的训练策略发现与真实模型表述一致的底层符号表达式的能力。
+其中 $\theta_1$ 和 $\theta_2$ 为无量纲平均应变率和旋转率的不变量，其定义如式\eqref{equ:invariants}所示。
+在此案例中，我们旨在验证所提出的训练策略是否能够成功发现与真实模型表述保持一致的底层符号表达式。
+
+% 该流动在流向充分发展且统计均匀, 因此可在横截面使用二维网格, 如图~\ref{fig:duct-flow-config} 所示。
+% 基于管道半宽和平均流速的Reynolds数为 $Re_h=\num{3500}$。
+% 计算域包含四分之一的横截面, 应用无滑移壁面和对称边界条件。
+% 网格包含 $50 \times 50$ 个单元, 在固体壁面附近进行加密。
+% 本研究采用 $k$-$\varepsilon$ 模型~\citep{LAUNDER1974} 中的湍动能 $k$ 和耗散率 $\varepsilon$ 来提供湍流时间尺度 $\mathcal{T}=k/\varepsilon$, 用于特征归一化。
+
+该流动在流向方向上充分发展且统计均匀，因此可将问题简化为二维横截面进行建模，采用如图~\ref{fig:duct-flow-config} 所示的二维网格进行计算。
+基于管道半宽和体积平均流速的Reynolds数为 $Re_h=\num{3500}$。
+考虑到流动的对称性，计算域选取为横截面的四分之一区域，并分别施加无滑移固壁边界条件和对称边界条件。
+网格划分为 $50 \times 50$ 个单元，并在固体壁面附近进行局部加密，以准确解析近壁面的速度梯度。
+本研究采用标准 $k$-$\varepsilon$ 模型~\citep{LAUNDER1974} 提供的湍动能 $k$ 及其耗散率 $\varepsilon$ 来构造湍流时间尺度 $\mathcal{T}=k/\varepsilon$，用于后续输入特征的归一化处理。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/duct-flow-config.png}
+    \bicaption{方管流动的流动构型与计算网格。
+        主流方向为 $x$ 方向, 由于雷诺应力不平衡, 二次流发生在 $y$-$z$ 横截面内。
+        二维网格覆盖横截面的四分之一区域。
+        边界上分别施加无滑移条件和对称条件。}{Flow configuration and computational mesh for flows in a square duct.
+        The main flow aligns with the $x$ direction, and the secondary flow occurs within the $y$-$z$ cross-section due to the Reynolds stress imbalance.
+        The two-dimensional mesh covers a quarter of the cross-section.
+        The no-slip and symmetry conditions are applied to the boundaries, respectively.}
+    \label{fig:duct-flow-config}
+\end{figure}
+
+% 我们将采用Shih二次模型的RANS方法在所有网格单元中预测的三个速度分量作为训练数据。
+% 神经网络架构包括: 一个具有六个神经元的输入层, 对应于标量不变量 $\theta_i$; 两个隐藏层, 每层10个神经元; 以及一个具有五个神经元的输出层, 代表每个张量基系数 $g^{(i)}$。
+% 本案例中使用的激活函数为ReLU。
+% 根据我们之前的敏感性研究~\citep{zhang2022}, 神经网络训练共使用了 $50$ 个样本。
+
+我们将采用基于Shih二次模型的RANS方法，在所有网格单元上计算得到的三维速度分量作为神经网络的训练数据。
+神经网络的输入层包含六个神经元，对应于六个标量不变量 $\theta_i$；网络架构包含两个隐藏层，每层设置10个神经元；输出层由五个神经元组成，分别对应五个张量基系数 $g^{(i)}$。
+本案例中，所有隐藏层均采用ReLU激活函数。
+根据我们前期的敏感性研究~\citep{zhang2022}，本次神经网络训练共使用了 $50$ 个独立样本。
+
+关于符号回归的设置, 每次暴力搜索的时间限制设定为 $120$ 秒。
+多项式拟合的最高次数设定为 $2$。
+神经网络训练的迭代次数设定为 $1600$。
+暴力搜索过程中所使用的函数列于表~\ref{tab:AI-func} 中。
+一元函数 $\texttt{>}$ 和 $\texttt{<}$ 分别表示将数值增加或减少 $1$。
+函数 $\texttt{$\sim$}$ 返回数值的相反数。
+函数 $\texttt{I}$ 计算倒数, 而 $\texttt{A}$ 和 $\texttt{R}$ 分别表示绝对值和平方根函数。
+
+\begin{table}[!htbp]
+    \centering
+    \bicaption{AI Feynman~\citep{Silviu2020} 中暴力搜索所探究的基本函数集。}{The fundamental functions explored by the brute-force search in AI Feynman~\citep{Silviu2020}.}
+    \resizebox{\textwidth}{!}{
+        \begin{tabular}{lccc|ccccccc|cccc}
+            \toprule
+                    & \multicolumn{3}{c}{nonary} & \multicolumn{7}{c}{unary} & \multicolumn{4}{c}{binary}                                                                                                                                                                                                                                                                                           \\
+            \midrule
+            symbol  & \texttt{0}                 & \texttt{1}                & \texttt{p}                 & \texttt{>}                & \texttt{<}                & \texttt{$\sim$}          & \texttt{I}             & \texttt{L}                & \texttt{A}          & \texttt{R}           & \texttt{+}          & \texttt{*}               & \texttt{-}               & \texttt{D}             \\
+            meaning & $0$                        & $1$                       & $\pi$                      & {\footnotesize increment} & {\footnotesize decrement} & {\footnotesize negative} & {\footnotesize invert} & {\footnotesize logarithm} & {\footnotesize abs} & {\footnotesize sqrt} & {\footnotesize add} & {\footnotesize multiply} & {\footnotesize subtract} & {\footnotesize divide} \\
+            \bottomrule
+        \end{tabular}
+    }
+    \label{tab:AI-func}
+\end{table}
+
+\subsection{训练模型与预测结果}
+
+基于神经网络、结合PFI分析的符号回归以及未结合PFI分析的符号回归所学习的湍流模型预测的速度场如图~\ref{fig:velocity-comparison-square-duct} 所示。
+考虑到流动的对称性, 图中仅绘制了速度分量 $U_x$ 和 $U_y$。
+可以看出, 学习到的神经网络模型能够准确预测流向流动和平面内二次流的速度场。
+流向速度 $U_x$ 受Reynolds应力分量 $\tau_{xy}$ 和 $\tau_{xz}$ 影响, 而平面内速度 $U_y$ 和 $U_z$ 则受Reynolds应力分量 $\tau_{yz}$ 和 $\tau_{yy}-\tau_{zz}$ 影响~\citep{michelen2021machine}, 这些将在下文中展示和讨论。
+在管道中心区域, 流向速度的误差略有增加, 该区域的标量不变量 $\bm{\theta}$ 接近于零。
+这可能是由于在小标量不变量范围内, 采用与未采用PFI分析的符号模型之间存在显著差异。
+采用PFI分析的符号模型能够产生与神经网络模型相似的速度预测, 这表明了所提训练策略的有效性。
+除了在非常靠近壁面的区域外, 无论是否采用PFI分析, 符号回归模型与神经网络模型相比均未表现出预测精度的显著下降。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/duct-flow-U-new.png}
+    \bicaption{方管案例中神经网络(NN)模型、结合PFI的符号回归(SR)模型、未结合PFI的SR模型以及合成真值(Shih模型)的速度预测。
+    四列分别展示速度分量 $U_x$、$U_x$ 的误差、速度分量 $U_y$ 以及 $U_y$ 的误差。
+    误差计算公式为：$\mathcal{E}(U_i)=\|U_i-U_i^{\text{truth}}\|/\max\bra{U_i^{\text{truth}}} $。}{Velocity predictions of the neural network (NN) model, the symbolic regression (SR) model with PFI, the SR model without PFI, and the synthetic truth (Shih model) for the square duct case.
+    The four columns show the velocity component $U_x$, the error of $U_x$, the velocity component $U_y$, and the error of $U_y$, respectively.
+    The error is calculated by $\mathcal{E}(U_i)=\|U_i-U_i^{\text{truth}}\|/\max\bra{U_i^{\text{truth}}} $.
+    }
+    \label{fig:velocity-comparison-square-duct}
+\end{figure}
+
+我们将学习到的模型与Shih二次模型在Reynolds应力 $\tau_{xy}$、$\tau_{yz}$、$\tau_{yy}-\tau_{zz}$ 方面进行比较, 结果如图~\ref{fig:Reynolds-comparison-square-duct} 所示。
+由于流动对称性, 省略了Reynolds应力 $\tau_{xz}$ 的图示。
+采用PFI分析的符号模型在Reynolds应力预测上表现出最小的误差, 而未采用PFI分析的符号模型则导致最大的预测误差。
+此外, 采用PFI分析的符号模型降低了 $\tau_{xy}$ 在整个横截面以及 $\tau_{yy}-\tau_{zz}$ 在近壁区域的预测误差。
+相比之下, 未采用PFI分析的符号模型增加了 $\tau_{yz}$ 和 $\tau_{yy}-\tau_{zz}$ 在横截面中心区域附近的预测误差。
+
+图~\ref{fig:Reynolds-comparison-square-duct} 中也提供了误差云图, 其显示所有学习到的模型均能提高Reynolds应力的预测精度。
+然而, 值得注意的是, 在此案例中, 未采用PFI分析的符号模型在速度和Reynolds应力预测方面均表现出相对较差的性能。
+这表明特征重要性分析能够提升所学符号模型的预测准确性。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/duct-flow-R-new.png}
+    \bicaption{方管案例中神经网络(NN)模型、结合PFI分析的符号回归(SR)模型、未结合PFI分析的SR模型以及合成真值(Shih模型)的雷诺应力预测。
+    六列分别展示剪切应力 $\tau_{xy}$、$\tau_{xy}$ 的误差、剪切应力 $\tau_{yz}$、$\tau_{yz}$ 的误差、正应力不平衡量 $\tau_{yy}-\tau_{zz}$ 以及 $\tau_{yy}-\tau_{zz}$ 的误差。
+    误差计算公式为：$\mathcal{E}(\tau_{ij})=\|\tau_{ij}-\tau_{ij}^{\text{truth}}\|/\max\bra{\tau_{ij}^{\text{truth}}} $。}{Reynolds stress predictions of the neural network (NN) model, the symbolic regression (SR) model with the PFI analysis, the SR model without the PFI analysis, and the synthetic truth (Shih model) for the square duct case.
+    The six columns show the shear stress $\tau_{xy}$, the error of $\tau_{xy}$, the shear stress $\tau_{yz}$, the error of $\tau_{yz}$, the normal stresses imbalance $\tau_{yy}-\tau_{zz}$, and the error of $\tau_{yy}-\tau_{zz}$, respectively.
+    The error is calculated by $\mathcal{E}(\tau_{ij})=\|\tau_{ij}-\tau_{ij}^{\text{truth}}\|/\max\bra{\tau_{ij}^{\text{truth}}} $.
+    }
+    \label{fig:Reynolds-comparison-square-duct}
+\end{figure}
+
+学习模型的PFI值如图~\ref{fig:PFI-value-Square-duct} 所示, 其结果与真实模型(即Shih二次模型)一致。
+具体而言, 特征 $\theta_3$、$\theta_4$、$\theta_6$ 的PFI值几乎为零, 表明模型几乎不依赖于这些特征。
+输入特征 $\theta_1$ 具有最大的PFI值, 其量级约为 $\theta_2$ 和 $\theta_5$ 的十倍。
+此外, 输入特征 $\theta_2$ 和 $\theta_5$ 的PFI值量级相近。
+对于所有系数函数 $g^{(i)}$, 特征 $\theta_2$ 和 $\theta_5$ 的显著PFI值可能是由于其与特征 $\theta_1$ 的依赖性所致。
+具体来说, 流向速度分量比平面内速度分量高出几个数量级 \citep{michelen2021machine}, 这凸显了流向流动的主导地位。
+这种主导地位导致不变量之间存在近似关系: $\theta_2\approx -\theta_1$ 和 $\theta_5\approx -\theta_1^2/2$。
+PFI分析表明, 在模型输入特征中, $\theta_1$、$\theta_2$ 和 $\theta_5$ 是相对重要的特征, 而 $\theta_3$、$\theta_4$ 和 $\theta_6$ 可在符号回归中排除。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{Img/chap-3/pfi-duct.png}
+    \bicaption{方管案例中神经网络模型的六个输入特征 $\theta_{1\sim 6}$ 的PFI分析。}{The PFI analysis for the six model input features $\theta_{1\sim 6}$ of the neural network model for the square duct case.
+    }
+    \label{fig:PFI-value-Square-duct}
+\end{figure}
+
+在排除相关性和不重要的特征后, 所提出的方法能够为第一个张量系数 $g^{(1)}$ 学习到一个与真实模型一致的符号表达式。
+我们选择 $\theta_1>2.5$ 范围内的数据, 因为小标量不变量的表示能力有限, 这可能导致错误的函数映射~\citep{zhang2022}。
+所得公式的数学形式与Shih二次模型相似, 具体为:
+\begin{equation}
+    \label{equ:duct-1}
+    \begin{aligned}
+        g^{(1)}             & =\frac{-0.248}{\sqrt{\theta_1}+0.465} \text{,} \\
+        g^{(1)}_\text{Shih} & =\frac{-0.238}{\sqrt{\theta_1}+0.442} \text{,}
+    \end{aligned}
+\end{equation}
+此处Shih模型基于 $\theta_2 \approx - \theta_1$ 进行了重新表述。
+然而, 其他三个系数函数 $g^{(2-4)}$ 与真实模型并不一致, 真实模型表达为:
+\begin{equation}
+    \label{equ:duct-2}
+    \begin{aligned}
+        g^{(2)} & =\num{3.157e-3}+\frac{1}{1000}\frac{\theta_1}{\left(\sqrt{e^{\theta_1}}+\theta_1\right)^{1/4}}, \\
+        g^{(3)} & =\num{0.390e-3}+\frac{1}{1000}\log\left(1+\sqrt{-2+\pi-\sin\theta_1}\right),                    \\
+        g^{(4)} & =-\num{2.367e-3} \sqrt{\theta_1 + 2} \text{.}
+    \end{aligned}
+\end{equation}
+这可能是由于从间接观测数据推断符号表达式所面临的不适定性造成的。
+一方面, 神经网络是基于集成梯度近似学习的, 其训练误差可能不可忽略。
+这类误差在符号回归过程中可能被进一步放大, 导致模型表达不一致。
+另一方面, 在速度梯度较小的区域, 不同的模型形式可能给出相似的速度预测, 因为标量不变量 $\theta_i$ 对Reynolds应力进而对速度预测的影响可能微乎其微~\citep{Luo2024}。
+此外, 如图~\ref{fig:coefficients-on-theta1} 所示, 间接速度数据仅能提供张量系数组合 $g^{(2)}-0.5g^{(3)}+0.5g^{(4)}$ 的信息, 因为该量对平面内速度预测有影响~\citep{STROFER2021TAML}。
+基于这些原因, 张量系数 $g^{(2-4)}$ 的底层模型表达式很难从间接速度数据中学习到。
+诚然, 式\eqref{equ:duct-2} 中的符号模型在物理上信息量有限, 但得益于其显式的模型表达式, 它仍比黑盒神经网络具有相对更好的可解释性。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/SR-DUCT-g.png}
+    \bicaption{张量基系数 $g^{(1)},g^{(2)},g^{(3)},g^{(4)}$ 及组合 $g^{(2)}-0.5g^{(3)}+0.5g^{(4)}$ 相对于标量不变量 $\theta_1$ 的比较, 涉及Shih模型、神经网络(NN)模型、以及采用与未采用PFI分析的符号回归(SR)模型。}{Comparison of tensor basis coefficients $g^{(1)},g^{(2)},g^{(3)},g^{(4)}$ and the combination $g^{(2)}-0.5g^{(3)}+0.5g^{(4)}$ with respect to the scalar invariant $\theta_1$ among the Shih model, neural network (NN) model, and symbolic regression (SR) models with and without the PFI analysis.}
+    \label{fig:coefficients-on-theta1}
+\end{figure}
+
+特征重要性分析方法能够提供预测精度良好且形式相对简单的模型。
+这一点通过对比采用与未采用PFI分析的学习符号模型(如图~\ref{fig:coefficients-on-theta1} 所示)得到支持。
+具体而言, 虽然可以推导出使用全部六个标量不变量的符号表达式, 但其并未得到目标模型。
+获得的涉及六个输入特征的表达式书写如下:
+\begin{equation}
+    \label{equ:duct-6}
+    \begin{aligned}
+        g^{(1)} & =\num{-5.627e-2} \exp\bra{\frac{\pi }{\theta _1+\sqrt{\pi }}},                                                         \\
+        g^{(2)} & =\num{-7.190e-3} \tan ^{-1}\left(\theta _1+\theta _2+\theta _3+\tfrac{\pi}{4}   \left(\theta _5-1\right)\right)-0.005, \\
+        g^{(3)} & =\num{-1.293e-3} \sin \left(\frac{\theta _2}{\cos \left(\theta _3-\theta _6\right)+2}\right),                          \\
+        g^{(4)} & =\num{-2.388e-3} \sqrt{-\theta _2+\sin \left(e^{\theta _4}\right)+1} \text{.}
+    \end{aligned}
+\end{equation}
+与采用PFI分析学习得到的符号模型相比, 所得模型形式相对复杂。
+此外, 相对于合成真值, 未采用PFI分析的符号模型其预测精度低于采用PFI分析的符号模型。
+
+表~\ref{tab:duct-sr} 总结了神经网络学习模型、采用PFI分析的符号回归模型以及未采用PFI分析的符号回归模型的误差。
+该表定量表明, PFI分析能够提升所学符号湍流模型的精度。
+具体而言, 采用PFI分析的符号模型在预测张量系数 $g^{(1)}$ 时的误差为 $7.295 \times 10^{-5}$, 而未采用PFI分析的符号模型则提供了相对较大的误差 $5.522 \times 10^{-3}$。
+另一方面, 如表~\ref{tab:duct-sr} 所示, 与采用PFI分析相比, 未采用PFI分析的符号回归需要更长的训练时间。
+即, 式\eqref{equ:duct-1} 的平均计算时间为 $\SI{176}{min}$, 而式\eqref{equ:duct-6} 的平均计算时间为 $\SI{1237}{min}$。
+
+\begin{table}[!htbp]
+    \centering
+    \bicaption{先验拟合误差、后验预测误差及计算成本的汇总。
+    先验拟合误差基于样本均值 $\|g^{(i)}-g^{(i)}_\text{Shih}\|/\max\|g^{(i)}_\text{Shih}\|$ 计算。
+    后验预测误差基于样本均值 $\|\bm{U}-\bm{U}_\text{Shih}\|/\max\|\bm{U}_\text{Shih}\|$ 计算。}{Summary of the prior fitting error, the posterior prediction error, and the computational cost.
+    The prior fitting error is calculated based on the sample mean of $\|g^{(i)}-g^{(i)}_\text{Shih}\|/\max\|g^{(i)}_\text{Shih}\|$.
+    The posterior prediction error is calculated based on the sample mean of $\|\bm{U}-\bm{U}_\text{Shih}\|/\max\|\bm{U}_\text{Shih}\|$.}
+    \resizebox{\textwidth}{!}{
+        \begin{tabular}{lcccccc}
+            \toprule
+            Model       & $g^{(1)}$       & $g^{(2)}$       & $g^{(3)}$       & $g^{(4)}$       & $U$               & CPU time       \\
+            \midrule
+            NN          & \num{4.713e-03} & \num{3.428e-01} & \num{6.857e-01} & \num{3.243e-01} & {\num{6.253e-04}} &                \\
+            SR with PFI & \num{7.295e-05} & \num{2.385e-01} & \num{2.756e-01} & \num{3.033e-01} & {\num{3.138e-04}} & \SI{176}{min}  \\
+            SR w/o PFI  & \num{5.522e-03} & \num{3.088e-01} & \num{3.508e-01} & \num{3.049e-01} & {\num{9.934e-04}} & \SI{1237}{min} \\
+            \bottomrule
+        \end{tabular}
+    }
+    \label{tab:duct-sr}
+\end{table}
+
+
+\section{应用与泛化: 周期山分离流}
+
+\subsection{训练算例设置}
+
+在此案例中, 所提方法应用于周期性山丘分离流的DNS数据, 以证明所学习的符号模型在类似流动构型中的泛化能力。
+下文将分别介绍案例细节及结果。
+
+周期性山丘绕流是一个典型流动案例, 其特征是流动分离和再附着现象, 使用传统的线性涡粘性湍流模型通常难以准确预测这些现象~\citep{almeida1993}。
+本文首先利用DNS数据 \citep{XIAO2020104431} 训练一个基于神经网络的模型, 然后基于特征重要性分析和符号回归将其转化为符号形式。
+
+周期性山丘的几何形状及网格如图~\ref{fig:config-phill} 所示。
+由于流动在展向统计均匀, 因此采用了二维网格。
+网格在流向和壁面法向的尺寸分别为 $100\times 150$, 并在近壁区域进行了加密。
+计算域的入口和出口施加了周期性边界条件, 底部和顶部表面则施加了无滑移壁面边界条件。
+基于平均流速和山丘高度的Reynolds数为 $Re_H=5600$。
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/pehills-scheme.png}
+    \bicaption{周期性山丘绕流示意图。
+        主流方向沿 $x$ 轴, 在背风面发生流动分离。
+        山丘高度记为 $H$。
+        上、下表面施加壁面边界条件, 左、右侧施加周期性边界条件。}{
+        Schematic diagram of flows over the periodic hills.
+        The primary flow direction is along the $x$-axis, with flow separation occurring on the leeward side.
+        The height of the hills is denoted by $H$.
+        Wall boundary conditions are applied to the upper and lower surfaces, and periodic boundary conditions are applied to the left and right sides.}
+    \label{fig:config-phill}
+\end{figure}
+
+对于统计二维湍流, 仅存在前两个不变量和前两个张量基 \citep{Pope_2000,zhang2022}。
+我们通过添加另外三个流动量来增强输入特征, 即归一化涡粘性系数、湍动能产生与耗散之比、以及Reynolds应力总项与各向同性部分之比。
+所引入的这三个特征具有伽利略不变性, 并且常用于数据驱动的湍流建模~\citep{Ling2015, Wang2017PhysRevFluids, HE2022, Fang2023}。
+表~\ref{tab:features} 列出了这五个输入特征的描述。
+在本案例中, 湍动能 $k$ 和耗散率 $\omega$ 由 $k$-$\omega$ SST 模型进行模拟。
+所提出方法的Python代码以及周期性山丘绕流的测试案例已公开在GitHub仓库中~\citep{renkf-git}。
+
+\begin{table}[!htb]
+    \centering
+    \bicaption{周期性山丘绕流中作为神经网络输入的无量纲流动特征。}{Non-dimensional flow features as neural network inputs for flows over periodic hills.}
+    \begin{tabular}{ccl}
+        \toprule
+        feature & physical quantity                  & description                    \\
+        \midrule
+        $q_1$   & $\tr\{\m{S}^2\}$                   & 无量纲应变率张量范数           \\
+        $q_2$   & $\tr\{\m{W}^2\}$                   & 无量纲旋转率张量范数           \\
+        $q_3$   & $\nu_t/\nu$                        & 涡黏与分子黏性比值             \\
+        $q_4$   & ${\mathcal{P}}/(\beta^* \omega k)$ & 湍动能生成与耗散比值           \\
+        $q_5$   & $\|\bm{\tau}\|/k$                  & Reynolds应力与各项同性部分比值 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:features}
+\end{table}
+我们将DNS结果在位置 $x/H=0,1,3,5,7$ 处的流向和壁面法向速度分量用作训练数据。
+我们抽取16个样本, 利用集成Kalman方法学习一个基于神经网络的模型。
+我们先前的研究~\citep{Luo2024} 已对周期性山丘案例的样本量进行了系统研究, 结果表明, 对于基于集成Kalman的神经网络训练, 10至40个样本量为最优区间。
+样本量超过此范围不一定能提高预测精度。
+鉴于此, 本研究采用16个样本量, 以期在计算效率和训练精度之间取得良好平衡。
+该神经网络具有5个输入、2个输出和2个隐藏层, 每层10个神经元。
+激活函数为ReLU。
+神经网络权重的相对标准差设为 $0.001$。
+对于观测数据, 其相对标准差设为 $\num{1.e-6}$。
+为研究训练过程对数据噪声的鲁棒性, 我们在训练数据中添加了不同水平的随机噪声。
+该鲁棒性研究的详细结果见第~\ref{sec:noise-check} 节。
+神经网络训练可承受相对标准差高达 $0.01$ 的训练数据噪声。
+这些参数以及样本量均基于我们的敏感性研究确定, 以确保在训练精度与效率之间达到最佳平衡。
+符号回归的设置与方管案例保持一致。
+
+\subsection{训练算例设置}
+速度云图如图~\ref{fig:phill-streamline} 所示, 该图比较了由 $k$-$\omega$ SST模型、DNS以及神经网络学习模型和所提出方法预测的流线。
+从云图可以看出, 与DNS结果相比, 基准 $k$-$\omega$ SST模型高估了分离泡的尺寸。
+相反, 符号模型和神经网络模型均能较好地预测分离泡尺寸, 且与DNS数据吻合良好, 无明显差异。
+未采用PFI分析的符号回归学习到了一个复杂的模型表达式, 导致后续预测发散。
+因此, 此处仅绘制了采用PFI分析的符号回归结果。
+采用与未采用PFI分析所学习到的符号模型表达式均列于第~\ref{sec:all-symbol} 节。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/pehills-bubble-new-2.png}
+    \bicaption{(a) DNS、(b) $k$-$\omega$ SST、(c) 神经网络(NN)模型与 (d) 结合PFI分析的符号回归(SR)模型之间的流线及速度云图对比。}{Comparison of streamline and velocity contour among (a) DNS, (b) the $k$-$\omega$ SST, (c) the neural network (NN) model, and (d) the symbolic regression (SR) model with the PFI analysis.}
+    \label{fig:phill-streamline}
+\end{figure}
+
+速度预测的定量对比如图~\ref{fig:phill-profile} 所示, 图中绘制了位置 $x/H=0,1,2,3,4,5,6,7,8$ 处的速度剖面。
+可以看出, 在基准模型无法准确预测的分离泡和再附着区域, 符号模型改善了速度剖面的预测。
+此外, 学习到的符号模型不仅在观测位置, 在未观测位置也能改进速度预测。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/velocity-compare-22-AllFunc.png}
+    \bicaption{(a) 流向与 (b) 壁面法向在 $x/H=0,1,2,3,4,4.5,5,6,7,8$ 位置处的平均速度剖面对比, 涉及基准模型($k$-$\omega$ SST)、DNS结果、神经网络(NN)模型及符号回归(SR)模型。}{Comparison of the mean velocity profiles at $x/H=0,1,2,3,4,4.5,5,6,7,8$ in the (a) stream-wise and (b) wall-normal directions among the baseline model ($k$-$\omega$ SST), the DNS results, the neural network (NN) model, and the symbolic regression (SR) model.
+    }
+    \label{fig:phill-profile}
+\end{figure}
+
+表~\ref{tab:addlabel} 总结了学习模型的预测误差以及采用与未采用PFI的符号回归的计算成本。
+可以看出, 采用PFI分析学习的符号模型其后验误差为 $4.432 \times 10^{-2}$, 低于神经网络模型的 $4.407 \times 10^{-2}$。
+然而, 未采用PFI分析学习的符号模型导致了RANS求解器的发散。
+另一方面, 采用PFI分析的符号回归比未采用PFI分析的更高效。
+具体而言, 采用PFI的符号回归可在约 $\SI{123}{min}$ 内收敛, 而未采用PFI的符号回归则需要 $\SI{818}{min}$ 才能获得收敛结果。
+
+\begin{table}
+    \centering
+    \begin{tabular}{clc}
+        \toprule
+        \multirow{3}[2]{*}{Prediction error $\mathcal{E}(U)$} & NN             & \num{4.432e-02} \\
+                                                              & SR with PFI    & \num{4.407e-02} \\
+                                                              & SR without PFI & Diverge         \\
+        \midrule
+        \multirow{2}[2]{*}{Computational cost}                & SR with PFI    & \SI{123}{min}   \\
+                                                              & SR without PFI & \SI{818}{min}   \\
+        \bottomrule
+    \end{tabular}
+    \bicaption{周期性山丘案例中, 采用与未采用PFI分析的符号回归在速度预测误差及计算成本方面的对比。}{Prediction error in velocity and computational costs for symbolic regression with and without the PFI analysis for the periodic hill case.}
+    \label{tab:addlabel}
+\end{table}
+
+学习神经网络模型各输入特征的PFI值如图~\ref{fig:phill-pfi} 所示。
+可以看出, 两个不变量 $\theta_1$ 和 $\theta_2$ 具有较大的PFI值, 而特征 $\nu_\text{t}/\nu$ 的PFI值相对较小。
+特征 ${\mathcal{P}}/(\beta^*\omega k)$ 和 $|\bm{\tau}|/k$ 的PFI值几乎可以忽略。
+这表明在符号回归中仅需使用三个重要特征 $\theta_1$、$\theta_2$、$\nu_\text{t}/\nu$ 的表格数据。
+AI Feynman方法给出的张量系数函数如下:
+\begin{equation}
+    \label{equ:k-omega-quadratic}
+    \begin{aligned}
+        g^{(1)}(\hat{q}_1,\hat{q}_2,\hat{q}_3) & =-0.108+0.010\bra{\hat{q}_1+\hat{q}_2}\bra{\hat{q}_3-\hat{q}_1-\hat{q}_2}, \\
+        g^{(2)}                                & =\num{2.043e-4}g^{(1)}+\num{1.793e-05}.
+    \end{aligned}
+\end{equation}
+该符号表达式在 $g^{(1)}$ 的值上与线性涡粘性模型不同。
+基于Bradshaw假设~\citep{Bradshaw1971}, 即在对数律区Reynolds剪切应力与动能的比值为常数, 线性涡粘性模型推导出 $g^{(1)}=-0.09$。
+相比之下, 学习模型识别出在周期性山丘分离流中该比值呈非均匀分布。
+此外, 在均匀剪切流中, 平均速度梯度仅有一个分量 $\partial_y U$, 导致 $\hat{q}_1+\hat{q}_2=0$。
+在此条件下, 学习到的符号模型可简化为 $g^{(1)}=-0.108$, 该值接近线性涡粘性模型所用的值。
+这表明学习到的符号模型在均匀剪切流中能有效退化为线性涡粘性模型。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.6\linewidth]{Img/chap-3/pfi-pehills.png}
+    \bicaption{周期性山丘案例中, 神经网络模型的五个输入特征 $\hat{q}_{(1 \sim 5)}$ 的PFI值分布图。}{Plots of the PFI values for the five model input features $\hat{q}_{(1 \sim 5)}$ of the NN model for the periodic hill case.
+    }
+    \label{fig:phill-pfi}
+\end{figure}
+
+PFI方法能够提升学习模型的鲁棒性以及符号回归的效率。
+具体而言, 未采用PFI的符号方法会产生包含全部六个输入特征的复杂模型形式, 其详细内容见第~\ref{sec:all-symbol} 节。
+此类复杂模型在与RANS求解器耦合时可能导致后续预测发散。
+相比之下, 采用PFI的符号方法仅使用三个重要特征, 提供了简洁的模型表达式。
+另一方面, PFI分析可在符号回归前排除不重要的特征, 从而简化问题并提高训练效率, 如表~\ref{tab:addlabel} 所示。
+
+从 $\hat{q}_1$、$\hat{q}_2$ 到张量系数 $g^{(1)}$、$g^{(2)}$ 的映射关系如图~\ref{fig:map} 左侧所示, 其中 $\hat{q}_3$ 固定为全场平均值。
+图~\ref{fig:map} 右侧还展示了 $\hat{q}_2=-1$ 和 $\hat{q}_1=0$ 处的切片图。
+如图所示, 与基准模型相比, 学习到的神经网络和符号模型均增大了张量系数的幅值。
+此外, 在 $\hat{q}_1$ 较大且 $\hat{q}_2$ 较小的范围内, 函数 $g^{(1)}$ 和 $g^{(2)}$ 仅表现出轻微变化, 这与先前研究~\citep{zhang2022} 学习到的神经网络模型相一致。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/g-func-map.png}
+    \bicaption{(曲面图)在 $\hat{q}_3$ 取均值时, 标量不变量 $\hat{\theta}_1,\hat{\theta}_2$ 到张量系数 $g^{(1)},g^{(2)}$ 的函数映射曲面对比, 涉及基准模型——$k$-$\omega$ SST(绿色点线边缘)、神经网络模型(蓝色虚线边缘)以及结合PFI的SR模型(红色点划线边缘)在周期性山丘案例中的表现。(曲线图)分别在 $\hat{\theta}_2=-1$ 和 $\theta_1=0$ 切片处的函数映射曲线图。}{
+    (Surface plots) The functional mapping from the scalar invariants $\hat{\theta}_1,\hat{\theta}_2$ to the tensor coefficients $g^{(1)},g^{(2)}$ at the mean value of $\hat{q}_3$ with comparison among the baseline model---$k$-$\omega$ SST (green dotted edge), the neural network model (blue dashed edge), and the SR with PFI (red dotdashed edge) for the periodic hill case. (Curve plots) Plots of the functional mapping at slices of $\hat{\theta}_2=-1$ and $\theta_1=0$, respectively.}
+    \label{fig:map}
+\end{figure}
+
+\subsection{泛化性测试}
+在本节中, 我们检验学习到的符号模型对与训练案例几何形状相似的流动的泛化能力。
+测试案例包括不同坡度的周期性山丘以及一个曲面前向-后向台阶。
+这些案例的几何形状如图~\ref{fig:valid-cases} 所示。
+\begin{figure}
+    \centering
+    \subfigure[Periodic hills of different slopes.]{\label{subfig-pehills}\includegraphics[width=0.8\linewidth]{Img/chap-3/hills.png}}
+    \subfigure[Rounded backward-facing step.]{\label{subfig-rbfs}\includegraphics[width=0.8\linewidth]{Img/chap-3/curved-back-forward-step-geo.png}}
+    \bicaption{泛化测试的配置：(a) 五个不同坡度的周期性山丘案例几何形状, 详见 \citep{XIAO2020104431}, 基于山丘高度和平均流速的雷诺数为 $Re_H=5600$; (b) 曲面前向-后向台阶的几何形状与网格, 基于入口平均流速和台阶高度的雷诺数为 $Re_H=13700$。}{
+        Configurations for the generalization test: (a) the geometry of the five periodic hill cases, with varying slopes, detailed in \citep{XIAO2020104431}, with a Reynolds number based on hill height and bulk velocity of $Re_H=5600$;
+        (b) the geometry and mesh for the curved backward-facing step, with a Reynolds number based on the mean inlet velocity and step height of $Re_H=13700$.}
+    \label{fig:valid-cases}
+\end{figure}
+
+现有DNS结果~\citep{XIAO2020104431} 可用于不同坡度的参数化周期性山丘。
+坡度由陡度比 $\alpha$ 决定, 该参数量化了总水平长度 $L_x$ 与山丘高度 $H$ 之间的关系, 即 $L_x/H=3.858\alpha+5.142$。
+山丘高度保持不变, 不同坡度对应不同的长度。
+图~\ref{subfig-pehills} 展示了坡度 $\alpha=0.5,0.8,1.0,1.2,1.5$ 的周期性山丘示意图。
+其中 $\alpha=1$ 的案例用于模型训练。
+基于平均流速和山脊高度的Reynolds数为 $Re_H=5600$。
+
+图~\ref{fig:phills-slopes-velocity} 比较了周期性山丘的平均速度剖面在基准模型、DNS结果、神经网络模型和符号模型之间的差异。
+基准模型持续高估上壁面附近的流向速度, 并低估底壁面附近谷底区域的速度。
+对于垂直速度 $U_y$, 模型在大部分区域低估了速度大小。
+相比之下, 符号模型通过提高底壁面附近的流向速度和垂直速度, 提供了更接近所有坡度DNS数据的预测。
+此外, 学习到的符号模型与神经网络模型给出了基本一致的预测, 尽管如图~\ref{fig:map} 所示, 学习到的模型函数存在明显差异。
+
+\begin{figure}
+    \centering
+    \subfigure[Slope parameter $\alpha=0.5$.]{\includegraphics[width=\linewidth]{Img/chap-3/velocity-validate-0p5-new.png}}
+    \subfigure[Slope parameter $\alpha=0.8$.]{\includegraphics[width=\linewidth]{Img/chap-3/velocity-validate-0p8-new.png}}
+    \subfigure[Slope parameter $\alpha=1.2$.]{\includegraphics[width=\linewidth]{Img/chap-3/velocity-validate-1p2-new.png}}
+    \subfigure[Slope parameter $\alpha=1.5$.]{\includegraphics[width=\linewidth]{Img/chap-3/velocity-validate-1p5-new.png}}
+    \bicaption{不同坡度下周期性山丘绕流的流向与壁面法向平均速度剖面预测对比, 涉及基准模型($k$-$\omega$ SST)、神经网络(NN)模型、结合PFI的符号回归(SR)模型以及DNS结果。}{Comparison of mean velocity in the stream-wise and wall-normal directions along profiles predicted by the baseline model ($k$-$\omega$ SST), the neural network (NN) model, the symbolic regression (SR) model with PFI, and the DNS results for flows over periodic hills over different slopes.
+    }
+    \label{fig:phills-slopes-velocity}
+\end{figure}
+
+我们还测试了学习到的符号模型在曲面前向-后向台阶绕流中的应用。
+其几何形状如图~\ref{subfig-rbfs} 所示。
+计算域范围为 $22.7H \times 9.48H$, 其中 $H$ 为圆弧台阶的高度。
+入口位于 $x/H=-7.34$, 台阶始于 $x/H=0$, 流向长度为 $2.937H$~\citep{Yacine2012}。
+基于入口平均流速和台阶高度的Reynolds数为 $Re_H=13700$。
+顶部和底部壁面施加无滑移边界条件。
+四边形网格尺寸约为 \num{37000}, 并在壁面附近进行了加密。
+入口处指定了充分发展的速度剖面, 出口处应用零梯度边界条件。
+同时, 入口处施加零压力梯度, 出口处施加狄利克雷边界条件。
+考虑到流动在展向统计均匀, RANS模拟使用了二维网格。
+采用大涡模拟(LES)预测结果~\citep{Yacine2012} 来评估学习模型的精度。
+
+图~\ref{fig:rbfs-mean-velocity} 展示了学习模型在 $x/H=0,0.5,1.5,2,3,4,5$ 处的流向和壁面法向速度剖面, 并与LES结果进行了比较。
+选择这些位置旨在捕捉重要的流动特征, 即 $x/H = 0$ 和 $0.5$ 处的附体边界层, $x/H = 1.5, 2, 3, 4$ 处的流动回流, 以及 $x/H = 5$ 处的再附着后流动。
+速度剖面显示出典型的流动分离现象, 但不同模型之间存在显著差异。
+具体而言, 基于LES结果~\citep{Yacine2012}, 回流区域较薄, 最大厚度 $0.33H$ 出现在 $x/H=2.9$ 处, 最大速度为平均速度的 $13\%$, 位于 $x/H=3$。
+基准 $k$-$\omega$ SST模型预测出更厚的回流区域, 并向下游延伸至 $x/H=4$ 和 $5$, 而根据LES预测, 这些位置并无回流。
+相比之下, 符号模型预测该区域无回流, 这与LES结果一致。
+对于垂直速度 $U_y$, 学习到的符号模型在 $x/H=3, 4, 5$ 处显著改善了预测。
+结果表明, 在预测曲面前向-后向台阶绕流的回流区域方面, 符号模型相较于 $k$-$\omega$ SST模型具有优越性。
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-3/cbfs-velocity-y-profile-new.png}
+    \bicaption{曲面前向-后向台阶绕流在 $x/H=0,0.5,1.5,2,3,4,5$ 位置处的平均速度剖面对比, 涉及基准模型($k$-$\omega$ SST)、LES结果~\citep{Yacine2012}、神经网络(NN)模型以及符号回归(SR)模型。}{Comparison of mean velocity profiles at $x/H=0,0.5,1.5,2,3,4,5$ among the baseline model ($k$-$\omega$ SST), the LES result~\citep{Yacine2012}, the neural network (NN) model, and the symbolic regression (SR) model for flows over of a curved backward-facing step.}
+    \label{fig:rbfs-mean-velocity}
+\end{figure}
+
+为深入探究神经网络模型与符号模型后验性能的一致性, 我们训练了八个神经网络, 每个网络均以不同的权重样本进行初始化。
+具体而言, 我们生成了八组样本用于学习神经网络模型。
+每组样本使用不同的随机种子从以初始神经网络权重为均值的高斯分布中采样。
+采样过程的细节见第~\ref{sec:procedure} 节。
+随后, 利用这些训练过程中神经网络输入和输出的样本均值来识别一个符号模型。
+由平均神经网络输入和输出导出的符号模型, 其函数形式与式\eqref{equ:k-omega-quadratic} 相同, 但参数略有差异: $g^{(1)}=-0.110+0.011(\hat{q}_1+\hat{q}_2)(\hat{q}_3-\hat{q}_1-\hat{q}_2),g^{(2)}=\num{1.972e-4}g^{(1)}+\num{1.773e-5}$。
+表~\ref{tab:pehills-misfit} 提供了神经网络模型预测误差的均值与标准差, 以及基准 $k$-$\omega$ SST模型和符号表达模型的误差。
+在所有案例中, 神经网络模型和符号模型均比基准模型提供了改进的预测。
+具体而言, 对于坡度 $\alpha=0.8$、$1.2$ 和 $1.5$ 的周期性山丘, 基准模型导致的误差分别为 $11.866\%$、$17.544\%$ 和 $21.14\%$, 而神经网络模型和符号模型均能将预测误差降低至 $10\%$ 以下。
+对于 $\alpha=0.5$ 的周期性山丘和曲面前向-后向台阶案例, 学习模型对速度预测略有改进。
+后验测试表明, 学习到的符号模型能够良好地泛化到与训练案例几何形状相似的流动中。
+对于坡度 $\alpha=0.5$、$0.8$ 和 $1.0$ 的周期性山丘案例, 符号模型的性能略逊于神经网络模型。
+然而, 对于坡度较平缓的周期性山丘以及曲面前向-后向台阶案例, 符号模型能表现出优于神经网络模型的预测性能。
+
+
+\begin{table}
+    \centering
+    \bicaption{基准模型、神经网络(NN)模型以及结合PFI分析的符号回归(SR)模型的预测误差。}{Prediction errors of the baseline model, the neural network (NN) model, and the symbolic regression (SR) model with the PFI analysis.}
+    \resizebox{\linewidth}{!}{
+        \begin{tabular}{lcccc}
+            \toprule
+            case                                        & $k$-$\omega$ SST (\%) & mean NN (\%) & std. NN (\%) & SR with PFI (\%) \\
+            \midrule
+            periodic hills $\alpha=0.5$                 & \num{8.507}           & \num{7.865}  & \num{0.0905} & \num{8.493}      \\
+            periodic hills $\alpha=0.8$                 & \num{11.866}          & \num{4.929}  & \num{0.0709} & \num{5.432}      \\
+            periodic hills $\alpha=1.0$ (training case) & \num{13.556}          & \num{4.312}  & \num{0.0761} & \num{4.629}      \\
+            periodic hills $\alpha=1.2$                 & \num{17.544}          & \num{6.128}  & \num{0.1377} & \num{5.309}      \\
+            periodic hills $\alpha=1.5$                 & \num{21.140}          & \num{8.829}  & \num{0.2128} & \num{7.727}      \\
+            curved backward-facing step                 & \num{8.803}           & \num{7.321}  & \num{0.0306} & \num{7.463}      \\
+            \bottomrule
+        \end{tabular}
+    }
+    \label{tab:pehills-misfit}
+\end{table}
+
+\section{总结}\label{sec:IV}
+本研究基于神经网络和特征重要性分析, 从间接观测数据中学习了符号湍流模型。
+具体而言, 首先利用间接速度观测数据训练一个神经网络模型, 这避免了获取高精度Reynolds应力数据的困难, 并确保了训练与预测环境的一致性。
+同时, 采用置换特征重要性(PFI)方法来识别神经网络的重要输入特征。
+这些特征随后被用作基于物理启发的符号回归的输入, 该回归方法旨在寻找能够近似神经网络所表示函数映射的Reynolds应力数学表达式。
+结果表明, 所提出的策略能通过神经网络训练和特征降维, 有效地从间接观测数据中学习符号湍流模型。
+
+该方法的可行性首先在方管流动中得到了验证, 学习到的符号模型具有与真实解析模型相似的表达式形式。
+进一步, 该方法在周期性山丘绕流中进行了测试, 其中平均速度剖面基于有限位置的DNS速度数据。
+结果表明, 对于包括不同陡度比的周期性山丘和曲面前向-后向台阶在内的类似流动构型, 学习到的符号模型相较于基准 $k$-$\omega$ SST模型能持续改进速度预测。
+这两个案例均突显了结合神经网络和特征重要性分析的符号湍流建模在效率上的提升。

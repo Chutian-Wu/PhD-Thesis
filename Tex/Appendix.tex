@@ -1,0 +1,282 @@
+\chapter{压气机机器学习湍流建模：敏感性分析与特征验证}
+% \section{Neural network model with partial input features}
+% \label{sec:wo_helicity}
+
+% We train the neural networks with partial input features to validate the effects of specific features, i.e., the production-destruction ratio and helicity, on the flow prediction.
+% The used method and case setup are consistent with the case with full input features as illustrated in Section~\ref{sec:3-NumericalResults}.
+% The main results and discussion are presented in the following.
+
+% A neural network without the input of helicity is trained to highlight the importance of helicity as an input.
+% The input features~$q$ only include the four features in~Eq.~\eqref{eq:feature}, i.e, $\mathcal{P}/\mathcal{D}$, $\| \bm{S} \| / \| \Omega \|$, $\delta$, $\chi$.
+% The predicted Mach number is illustrated in Figure \ref{fig:r37-enkf-mach-noh}.
+% Compared to the full neural network with the input of helicity, the model has limited improvements in Mach number prediction.
+% It can be seen that the neural network model predicts a higher Mach number than the model with input of helicity in the subsonic region, e.g., the 40\% chord and 95\% span, as well as 65\% chord and 95\% span.
+% In 104\% chord and 95\% span, the model without inputs of helicity predicts a Mach number distribution in the wake center closer to the result of the baseline model.
+% The apparent discrepancy in Mach number predictions shows the importance of helicity for improving the SA turbulence model.
+
+\section{缺失特定输入特征的神经网络模型分析}
+\label{sec:wo_helicity}
+
+为了进一步量化验证特定物理特征（尤其是生成/破坏比与螺旋度）对流场预测精度的贡献，本节开展了基于部分输入特征的神经网络训练实验。除了特征向量的维度调整外，其数值方法与案例设置均与第~\ref{sec:3-NumericalResults} 节中全特征输入的案例保持高度一致。
+
+
+
+本节重点训练了一个剔除螺旋度（Helicity）输入的神经网络模型，旨在从反面证明螺旋度作为特征输入在跨音速旋转机械湍流建模中的不可替代性。此时，输入特征向量 $\bm{q}$ 仅包含式~\eqref{eq:feature} 中的四项参数，即 $\mathcal{P}/\mathcal{D}$、$\| \bm{S} \| / \| \Omega \|$、$\delta$ 以及 $\chi$。
+
+图~\ref{fig:r37-enkf-mach-noh} 展示了该模型预测的 Mach 数分布情况。与全特征神经网络相比，缺失螺旋度特征的模型在 Mach 数预测精度上的改善十分有限：
+\begin{itemize}
+    \item \textbf{激波后及亚音速区性能下降}：在 95\% 展向、40\% 弦长及 65\% 弦长的关键监测点，缺失螺旋度的模型预测的 Mach 数明显高于全特征模型，未能准确刻画出激波/涡相互作用导致的低动量阻塞特征。
+    \item \textbf{尾迹区捕捉失效}：在 104\% 弦长（尾迹区）处，缺失螺旋度输入的模型预测结果高度趋近于基准 SA 模型，无法复现实验观测到的尾迹宽度与深度。
+\end{itemize}
+
+
+
+上述预测偏差清晰地表明，尽管生成-破坏比等特征提供了基础的非平衡修正，但螺旋度作为描述三维流场旋涡结构拓扑的关键物理量，对于提升 SA 湍流模型在跨音速环境下处理复杂分离与混合效应的能力具有决定性意义。
+
+% Also, the neural network without the input of $\mathcal{P}/\mathcal{D}$ is trained to validate the importance of $\mathcal{P}/\mathcal{D}$ as an input.
+% The input features~$q$ only include the four features in~Eq.~\eqref{eq:feature}, i.e., $\| \bm{S} \| / \| \Omega \|$, $\delta$, $\chi$, $h$.
+% The predicted Mach number is illustrated in Figure \ref{fig:r37-enkf-mach-noh}.
+% Compared to the full neural network with the input of $\mathcal{P}/\mathcal{D}$, the model has limited improvements in Mach number prediction.
+% It can be seen that the neural network model without the input of $\mathcal{P}/\mathcal{D}$ predicts a lower Mach number over the entire rotor pitch than the full model, e.g., the 40\% chord and 95\% span, 65\% chord and 95\% span, as well as 90\% chord and 95\% span.
+% The apparent discrepancy in Mach number predictions shows the importance of $\mathcal{P}/\mathcal{D}$ for improving the SA turbulence model.
+
+此外，为了量化验证生成/破坏比 $\mathcal{P}/\mathcal{D}$ 的重要性，本节训练了一个剔除该特征的神经网络模型。此时，输入特征向量 $\bm{q}$ 仅包含 $\| \bm{S} \| / \| \Omega \|$、$\delta$、$\chi$ 以及螺旋度 $h$。
+
+
+
+图 \ref{fig:r37-enkf-mach-noh} 展示了该缺失特征模型的 Mach 数预测结果。对比分析表明，移除 $\mathcal{P}/\mathcal{D}$ 后，模型对 Mach 数分布的修正能力显著削弱，主要体现在以下方面：
+\begin{itemize}
+    \item \textbf{全局预测偏差}：与全特征模型相比，缺失 $\mathcal{P}/\mathcal{D}$ 的模型在整个叶片节距（Pitch）范围内预测的 Mach 数普遍偏低。特别是在 95\% 展向跨度下，从 40\% 弦长到 90\% 弦长的广大区域内，均观察到了明显的系统性偏差。
+    \item \textbf{损失机制捕捉失效}：这种低估 Mach 数的倾向表明，缺乏非平衡项约束的模型无法准确平衡湍流生成与破坏过程，导致对流道内动量亏损的过度补偿或错误估计。
+\end{itemize}
+
+
+
+与前述缺失螺旋度的案例不同，缺失 $\mathcal{P}/\mathcal{D}$ 会导致模型在整个节距方向上产生趋势性的偏差，而非仅局限于旋涡核心区或尾迹区。这一显著的预测差异有力地论证了生成/破坏比在表征跨音速流场非平衡特性中的基石作用，它是实现 SA 湍流模型精准修正的首要物理特征。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics{Img/chap-2/Mach-cross-pitch-r37-enkf-withouts.pdf}
+    \caption{Plots of Mach number at 70\% span (upper panels) and 95\% span (bottom panels) for fixed streamwise locations of 20\%, 40\%, 65\%, 90\% and 104\% chord at the near peak efficiency operating condition.
+        The comparison is conducted among the experiments (dotted lines), the baseline SA model (blue dashed lines), the mean of the learned model with all five inputs (red lines), the mean of the learned model without helicity as input (green lines), and the mean of the learned model without $\mathcal{P}/\mathcal{D}$ as input (orange lines).
+    }
+    \label{fig:r37-enkf-mach-noh}
+\end{figure}
+
+% To enhance the validation of SHAP analysis, the mean absolute SHAP value of the four features are illustrated in Figure~\ref{fig:mean-shap-without-helicity}.
+% It shows that for the case without the input of $h$, the feature importance is consistent with the case with helicity as shown in Figure~\ref{fig:r37-shap}.
+% That is, the feature that contributes the most is $\mathcal{P}/\mathcal{D}$, while the feature that contributes the least is $\chi$. The features $\delta,\| \bm{S} \| / \| \Omega \|$ still have a similar SHAP value to the case with helicity as input.
+% For the case without the input of $\mathcal{P}/\mathcal{D}$,
+% the feature $\delta$ exhibits the greatest influence on the output, surpassing helicity $h$ in terms of contribution.
+% Meanwhile, the features $\| \bm{S} \| / \| \Omega \|$ and $\chi$ keep their positions as the least significant features, with unchanged relative order.
+% The SHAP value of $\delta$ gets increased likely due to the strong connection between $\delta$ and $\mathcal{P}/\mathcal{D}$.
+% The feature~$\delta$ indicates the adverse pressure gradient, which can also represent the non--equilibrium effects as the feature~$\mathcal{P}/\mathcal{D}$.
+% The contribution of the feature~$\delta$ is increased to capture the non--equilibrium effects with the exclusion of $\mathcal{P}/\mathcal{D}$.
+% Also, it can be seen from Figure~\ref{fig:r37-inter-matrix}(a) that $\overline{\abs{\phi_{3,1}}}$, i.e., the interaction between the feature $\delta$ and the feature $\mathcal{P}/\mathcal{D}$, has the highest interaction value, excluding the diagonals in the third row.
+
+为了进一步验证 SHAP 分析的稳健性，图~\ref{fig:mean-shap-without-helicity} 展示了两种缺失特征案例下的平均绝对 SHAP 值分布。
+
+
+
+在剔除螺旋度 $h$ 的案例中，剩余特征的重要性排序与全特征案例（见图~\ref{fig:r37-shap}）保持了高度的一致性。其中，$\mathcal{P}/\mathcal{D}$ 依然占据主导地位，而工作变量 $\chi$ 的贡献度最低。特征 $\delta$ 与 $\| \bm{S} \| / \| \Omega \|$ 的 SHAP 值量级也与包含螺旋度的案例基本持平。这说明螺旋度作为一个相对独立的三维结构特征，其缺失并不会引起其他特征贡献逻辑的剧烈重构，但会导致流场局部细节捕捉能力的下降。
+
+
+
+而在剔除第一核心特征 $\mathcal{P}/\mathcal{D}$ 的案例中，SHAP 贡献度分布发生了显著调整。此时，特征 $\delta$ 的影响力大幅跃升，甚至超过了螺旋度 $h$，成为对输出贡献最大的特征。与此同时，$\| \bm{S} \| / \| \Omega \|$ 和 $\chi$ 依然维持其较低的重要性排名。
+
+
+
+特征 $\delta$ SHAP 值的剧增揭示了物理特征间的强耦合关系。由于 $\delta$ 刻画的是不利压力梯度效应，在物理本质上与表征非平衡效应的 $\mathcal{P}/\mathcal{D}$ 具有高度的相关性。当 $\mathcal{P}/\mathcal{D}$ 被移除后，神经网络自发增强了对 $\delta$ 的依赖，试图通过不利压力梯度信息来代偿缺失的非平衡态描述。这一发现不仅在图~\ref{fig:r37-inter-matrix}(a) 的交互矩阵中得到了印证——即 $\delta$ 与 $\mathcal{P}/\mathcal{D}$ 之间的交互值 $\overline{|\phi_{3,1}|}$ 在该行非对角线元素中具有最高强度，也从侧面证明了神经网络在处理物理缺失时具有一定的自我补偿与特征重组逻辑。
+
+\begin{figure}[!htb]
+    \centering
+    \subfigure[without $h$]{\includegraphics[width=0.4\linewidth]{Img/chap-2/mean-shap-no-helicity.pdf}}
+    \subfigure[without $\mathcal{P}/\mathcal{D}$]{\includegraphics[width=0.4\linewidth]{Img/chap-2/mean-shap-no-PD.pdf}}
+    \caption{The bar chart of SHAP analysis. The chart shows the mean absolute SHAP value of neural network input features.}
+    \label{fig:mean-shap-without-helicity}
+\end{figure}
+
+\section{神经网络超参数敏感性研究}
+\label{sec:sensitivity-nn}
+
+为了评估神经网络架构对预测性能的影响并验证模型的稳健性，本节对比了三种不同深度的网络配置。通过改变隐藏层数及每层神经元数量，构建了如表~\ref{tab:error-neural-networks} 所示的候选架构：(1) 包含 2 个隐藏层，每层 5 个神经元（NN1）；(2) 包含 2 个隐藏层，每层 10 个神经元（NN2）；以及 (3) 包含 4 个隐藏层，每层 10 个神经元（NN3）。
+
+
+
+表~\ref{tab:error-neural-networks} 定量汇总了各架构在径向性能及 Mach 数预测上的误差分布。结果显示，三种架构在预测精度上表现出高度的相近性，均能有效捕捉流场的主要修正特征。这种对架构变化的低敏感性表明，本研究提出的模型修正方案主要依赖于物理输入特征的质量，而非特定的网络拓扑结构。
+
+
+
+值得注意的是，神经元最少的架构 NN1 在 Mach 数分布改进方面表现出略优的预测效果。这说明对于当前的跨音速压气机转子数据集，较浅的网络层数与较少的神经元参数已足以拟合湍流修正系数 $\beta$ 的物理映射逻辑，且较低的模型复杂度有助于抑制潜在的过拟合风险，从而在保证计算效率的同时维持良好的泛化性能。因此，本研究后续均采用 NN1 作为核心预测模型。
+
+% \section{Sensitivity study of neural network hyperparameters}
+% \label{sec:sensitivity-nn}
+
+% We employ different neural network architectures to investigate the effect of the hyperparameters on the predictive performance of the neural network.
+% Three network architectures are tested: (1) 2 hidden layers with 5 neurons per layer (NN1); (2) 2 hidden layers with 10 neurons per layer (NN2); and (3) 4 hidden layers with 10 neurons per layer (NN3).
+% The predictive error is summarized in Table~\ref{tab:error-neural-networks}, quantitatively showing the comparable ability of different neural networks in predicting the radial performance and Mach number.
+% The results demonstrate that neural network NN1 exhibits the best prediction of Mach number improvement.
+
+\begin{table}[!htb]
+    \centering
+    \begin{tabular}{lcccc}
+        \toprule
+                                               & baseline & NN 1   & NN 2   & NN3    \\
+        \midrule
+        Number of hidden layers                &          & 2      & 2      & 4      \\
+        Number of neurons in each hidden layer &          & 5      & 10     & 10     \\
+        Radial total pressure ratio            & 2.73\%   & 2.05\% & 3.78\% & 3.78\% \\
+        Radial total temperature ratio         & 0.91\%   & 0.97\% & 1.37\% & 1.37\% \\
+        Radial adiabatic efficiency            & 1.62\%   & 1.98\% & 1.50\% & 1.49\% \\
+        Mach number                            & 8.34\%   & 7.28\% & 8.35\% & 8.35\% \\
+        \bottomrule
+    \end{tabular}
+    \caption{Summary of prediction error in radial total pressure ratio, radial total temperature ratio, radial adiabatic efficiency, and Mach number with the baseline and different neural networks.}
+    \label{tab:error-neural-networks}
+\end{table}
+
+% We compare the prediction of the original SA model, the SA-helicity model, and the learned model in the Mach number at $70\%$ span and $95\%$ span.
+% The results are presented in Figure~\ref{fig:r37-enkf-mach-with-helicity}, which show that the SA-helicity model does not achieve significant improvement compared to the SA model.
+% We note that it is not a comprehensive comparison between the two turbulence models, and the results are obtained based on our particular implementation in the Multall code with the H-type mesh.
+
+% In the present work, we use the original SA model as the baseline model to exclude the influence of helicity.
+% By doing so, we can validate the capability of machine learning in identifying important features, e.g., helicity, for turbulence modeling of compressor flows.
+
+为了进一步验证数据驱动方法的有效性，本节对比了原始 SA 模型、引入物理螺旋度修正的 SA-helicity 模型以及基于机器学习的训练模型在 70\% 和 95\% 展向跨度下的 Mach 数预测结果。
+
+图~\ref{fig:r37-enkf-mach-with-helicity} 的结果表明，在当前工况下，SA-helicity 模型相比于原始 SA 模型并未取得显著的精度提升。需要指出的是，该结论并非对两种湍流模型优劣的普适性评价，而是基于本研究在 Multall 程序架构及 H 型网格划分下的特定计算结果。
+
+
+
+在本章的研究框架内，我们特意选择**原始 SA 模型**作为训练的基准模型（Baseline），旨在通过剔除预设的螺旋度修正物理逻辑，来独立验证机器学习框架在压缩机复杂流场中**自动识别关键物理特征**（如螺旋度 $h$）的能力。这种方法论的选择证明了，即便在缺乏先验物理修正公式的前提下，数据同化与神经网络仍能精准捕捉提升湍流模型性能的核心变量，从而为跨音速流动建模提供了一种更具通用性的特征发现手段。
+
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics{Img/chap-2/Mach-cross-pitch-r37-enkf-with-helicity.pdf}
+    \caption{Plots of Mach number at 70\% span (upper panels) and 95\% span (bottom panels) for fixed streamwise locations of 20\%, 40\%, 65\%, 90\% and 104\% chord at the near peak efficiency operating condition.
+        The comparison is conducted among the experiments (dotted lines), the baseline SA model (blue dashed lines), the SA-helicity model (green dashed lines), and the learned model (red lines). The red band indicates the coverage of the samples from the learned model.}
+    \label{fig:r37-enkf-mach-with-helicity}
+\end{figure}
+
+\chapter{符号回归湍流建模}
+
+\section{周期山算例的符号回归函数}\label{sec:all-symbol}
+
+AI Feynman generates a Pareto frontier, which can provide a spectrum of symbolic formulas ranging from simple to complex, each offering progressively improved accuracy rather than delivering a single, fixed solution~\citep{Silviu2020}.
+This feature allows users to navigate the trade-off between model complexity and predictive precision.
+In our implementation, we choose the formula that achieves the lowest posterior fitting error and incorporates all three important features simultaneously.
+In essence, the Pareto frontier of the AI Feynman, combined with our selection criteria, enables the discovery of models that are not only accurate but also interpretable.
+
+The symbolic regression results obtained by AI Feynman with and without PFI assistance for the periodic hill case are presented in Table~\ref{tab:all-equ-pehills_wo}, respectively.
+The prior error in Table~\ref{tab:all-equ-pehills_wo} refers to the relative error in the tensor coefficient $g^{(1)}$ between the predictions of the symbolic model and the neural network model.
+This error measures how closely the symbolic expression approximates the neural network.
+The posterior error refers to the relative error in the mean velocity at observation positions between the predictions of the symbolic turbulence model and the DNS.
+This error assesses the ability of the turbulence model to predict the mean velocity.
+The results in Table~\ref{tab:all-equ-pehills_wo} show that the symbolic models learned without the PFI analysis lead to divergent predictions.
+In contrast, the symbolic regression with the PFI analysis can provide a simple formula of $g^{(1)} = 0.01\left(\hat{q}_1+\hat{q}_2\right) \left(-\hat{q}_1-\hat{q}_2+\hat{q}_3\right)-0.108$ which meet the criteria and have good posterior prediction accuracy.
+Note that the symbolic regression method can also offer expressions with partial features that could make improved posterior predictions but at a relatively high computational cost.
+Besides, it may exclude key flow features in the model formulation, which would deteriorate the generalizability of the learned turbulence model.
+
+\begin{table}
+    \centering
+    \begin{tabular}{llll}
+        \toprule
+        Function $100 g^{(1)}$                                                                                                                                                                                                                                                                           & priori error       & posterior error  \\
+        \midrule
+        $f_1=\left(\hat{q}_1+\hat{q}_2\right) \left(-\hat{q}_1-\hat{q}_2+\hat{q}_3\right)-10.839$                                                                                                                                                                                                        & \num{1.593e-02 }   & \num{4.407e-02 } \\
+        $f_2=\hat{q}_1+\frac{\hat{q}_2}{-\hat{q}_3+\pi -1}-10.950$                                                                                                                                                                                                                                       & \num{1.605e-02}    & \num{4.456e-02 } \\
+        $f_3=-\frac{\left| \hat{q}_1+\hat{q}_2\right|}{\pi}+\hat{q}_1+\hat{q}_2-10.829$                                                                                                                                                                                                                  & \num{ 1.622e-02  } & \num{4.411e-02}  \\
+        $f_4=\hat{q}_1+\frac{-\hat{q}_2+\hat{q}_3-\cos \hat{q}_2}{\hat{q}_1-3}-11.134$                                                                                                                                                                                                                   & \num{1.633e-02 }   & \num{4.458e-02 } \\
+        $f_5=\hat{q}_2+\hat{q}_1 \left(-\hat{q}_3+\pi -1\right)-10.971$                                                                                                                                                                                                                                  & \num{1.689e-02 }   & \num{4.321e-02 } \\
+        $f_6=\frac{1}{\hat{q}_3-e^{\hat{q}_1+\hat{q}_2+1}}-10.260$                                                                                                                                                                                                                                       & \num{1.779e-02 }   & \num{4.426e-02}  \\
+        {\tiny $h_1=\log \left(\frac{\num{1.672e-5}}{\left|1+ \log \hat{q}_3\right| }\right) \left(\tan^{-1}\left(0.368 +\frac{1}{\frac{\frac{\hat{q}_2-\cos \hat{q}_4}{\log (\hat{q}_4+1)+1}-1}{\sqrt{\hat{q}_1+1}}-1}\right)+1\right)$}                                                                & \num{1.591e-02}    & \texttt{NAN}     \\
+        {\scriptsize $h_2=\log \left(\frac{\num{1.672e-5}}{\left| 1+\log \hat{q}_3\right| }\right) \left(\frac{1}{\frac{\frac{\hat{q}_2-\cos \hat{q}_4}{\log (\hat{q}_4+1)+1}-1}{\sqrt{\hat{q}_1+1}}-1}+0.332 \left(\pi -\frac{1}{\hat{q}_5+2 \pi }\right)+0.368\right)$}                                & \num{1.583e-02}    & \texttt{NAN}     \\
+        {\scriptsize $h_3=\log \left(\frac{\num{1.672e-5}}{\left| 1+ \log \hat{q}_3\right| }\right) \left(\frac{1}{\frac{\frac{\hat{q}_2-\cos \hat{q}_4}{\log (\hat{q}_4+1)+1}-1}{\sqrt{\hat{q}_1+1}}-1}+0.326 \left(\pi -\frac{1}{\pi  (\hat{q}_5+\pi)}\right)+0.368\right)$}                           & \num{1.583e-02}    & \texttt{NAN}     \\
+        {\scriptsize $h_4=\log \left(\frac{\num{1.672e-5}}{\left| 1+\log \hat{q}_3\right| }\right) \left(\sin \left(0.368 +\frac{1}{\frac{\frac{\hat{q}_2-\cos \hat{q}_4}{\log (\hat{q}_4+1)+1}-1}{\sqrt{\hat{q}_1+1}}-1}\right)+0.342 \left(\pi -\frac{1}{\sqrt{\hat{q}_5+1}+\pi }\right)\right)$}      & \num{1.583e-02}    & \texttt{NAN}     \\
+        {\scriptsize $h_5=\log \left(\frac{\num{1.672e-5}}{\left| 1+\log \hat{q}_3\right| }\right) \left(\tan ^{-1}\left(0.368 +\frac{1}{\frac{\frac{\hat{q}_2-\cos \hat{q}_4}{\log (\hat{q}_4+1)+1}-1}{\sqrt{\hat{q}_1+1}}-1}\right)+0.342 \left(\pi -\frac{1}{\sqrt{\hat{q}_5+1}+\pi }\right)\right)$} & \num{1.583e-02}    & \texttt{NAN}     \\
+        \bottomrule
+    \end{tabular}
+    \caption{The symbolic expressions obtained by AI Feynman for the periodic hill case include functions $f_i,(i=1,2,3,4,5,6)$ with PFI assistance and functions $h_i,(i=1,2,3,4,5)$ without PFI assistance.}
+    \label{tab:all-equ-pehills_wo}
+\end{table}
+
+
+\section{训练数据噪声水平的影响}\label{sec:noise-check}
+
+The ensemble Kalman method inherently takes random noise in the training data into account~\citep{zhang2020evaluation}, which can effectively avoid data overfitting~\citep{zhang2022}.
+To investigate the robustness of the ensemble Kalman method, we test the effect of the data noise on the training performance in the periodic hill case with a steepness ratio of $\alpha=1$.
+We vary levels of data noise, i.e., relative standard deviations ranging from $\num{1.e-6}$ to $\num{1.e-1}$, equally spaced on log space with interval $\num{1.e1}$.
+The relative error of mean velocity predicted by the trained neural network models is shown in~Figure \ref{fig:noise-check}.
+The results show that the trained models remain robust to noise levels up to $\num{1.e-2}$, with relatively small prediction errors and sample deviations.
+However, as the noise level increases to $\num{1.e-1}$, both the prediction error and the standard deviation increase significantly.
+
+\begin{figure}
+    \centering
+    \includegraphics[]{Img/chap-3/noise-level-check.pdf}
+    \caption{The relative prediction error of the neural network (NN) model with different relative standard deviations of training data.}
+    \label{fig:noise-check}
+\end{figure}
+
+
+
+\chapter{色噪声随机力建模}
+\section{槽道湍流 RANS 模型}\label{app: RANS}
+The RANS equations in turbulent channel flow for the zero-equation Cess model, the one-equation SA model, and the two-equation $k$-$\omega$ model are presented.
+In channel flows, the RANS momentum equation with the eddy-viscosity-based turbulence models can be written as
+\begin{equation}
+    -\frac{u_\tau^2}{h}=\frac{\dif{}}{\dif{y}}\sbra{\bra{\nu+\nu_t}\frac{\dif{U}}{\dif{y}}},
+\end{equation}
+subject to the boundary condition $U(\pm h)=0$, where $u_\tau$ is the friction velocity.
+
+The zero-equation Cess model~\citep{Cess_1958, Reynolds_Tiederman_1967} provides the eddy viscosity as a function of wall-normal position, i.e.,
+\begin{equation}
+    \nu_t(y)=\frac{\nu}{2}\sqrt{1+\frac{\kappa^2 Re_\tau^2}{9}\bra{1-\frac{y^2}{h^2}}^2\bra{1+\frac{2y^2}{h^2}}^2\bra{1-e^{-y^+/A}}^2}-\frac{\nu}{2},
+\end{equation}
+where $A^+=25.4$, $\kappa=0.426$ is the K{\'a}rm{\'a}n constant, and $y^+=Re_\tau(1-|y/h|)$ is the distance from the nearest wall measured in viscous lengthscales.
+The Cess model offers an explicit formula, enabling a direct solution of eddy viscosity in channel flows.
+
+The SA model~\citep{spalart1992} provides the eddy viscosity by
+\begin{subequations}
+    \begin{gather}
+        \nu_t=\hat{\nu}f_{v1},\\
+        \resizebox{0.9\linewidth}{!}{$\displaystyle
+            0=c_{b1}\bra{1-f_{t2}}\hat{S}\hat{\nu}-\bra{c_{w1}f_w-\frac{c_{b1}}{\kappa^2}f_{t2}}\bra{\frac{\hat{\nu}}{d}}^2+\frac{1}{\sigma}\sbra{\frac{\p}{\p y}\bra{(\nu+\hat{\nu})\frac{\p\hat{\nu}}{\p y}}+c_{b2}\bra{\frac{\p \hat{\nu}}{\p y}}^2}
+        $,}
+    \end{gather}
+\end{subequations}
+subject to boundary conditions $\hat{\nu}(\pm h)=0$. Auxiliary functions and constants are
+\begin{subequations}
+    \begin{gather}
+        f_{v1}=\frac{\chi^3}{\chi^3+c_{v1}^3},\quad f_{v2}=1-\frac{\chi}{1+\chi f_{v1}},\quad f_{t2}=c_{t3}\exp\bra{-c_{t4}\chi^2},\quad \chi=\frac{\hat{\nu}}{\nu},\\
+        \hat{S}=|\p_y U|+\frac{\hat{\nu}}{\kappa^2 d^2}f_{v2},\quad  f_w=g\bra{\frac{1+c_{w3}^6}{g^6+c_{w3}^6}}^{1/6},\quad g=r+c_{w2}\bra{r^6-r},\\
+        r=\min\sbra{\frac{\hat{\nu}}{\hat{S}\kappa^2 d^2},10},\quad \sigma=2/3,\, \kappa=0.41,\, c_{v1}=7.1,\\
+        c_{b1}=0.1355,\,  c_{b2}=0.622,\,c_{w1}=3.239,\, c_{w2}=0.3,\, c_{w3}=2,\, \, c_{t3}=1.2,\, c_{t4}=1/2.
+    \end{gather}
+\end{subequations}
+
+The $k$-$\omega$ model~\citep{wilcox1998turbulence, Wilcox_2008} specifies the eddy viscosity by
+\begin{subequations}
+    \begin{gather}
+        \nu_t={k}/{\omega},\\
+        0=\nu_t\bra{\p_y U}^2-\beta^*\omega k+\p_y\sbra{\bra{\nu+\sigma^*\nu_t}\p_y k},\\
+        0=\gamma\bra{\p_y U}^2-\beta\omega^2+\p_y\sbra{\bra{\nu+\sigma\nu_t}\p_y\omega},
+    \end{gather}
+\end{subequations}
+subject to boundary conditions $k(\pm h)=0,\lim_{d\to 0}\omega=6\nu/(\beta d^2)$, where $d$ is the distance to the nearest wall. The model constants are
+\begin{equation}
+    \beta^*=9/100,\quad \beta=3/40,\quad  \sigma^*=1/2,\quad \sigma=1/2,\quad \gamma=5/9.
+\end{equation}
+The eddy viscosities and mean profiles obtained from the Cess, SA, and $k$-$\omega$ models are compared against DNS results in figure~\ref{fig: RAS-channel}.
+\begin{figure}
+    \centering
+    \includegraphics[]{Img/chap-4/fig21.eps}
+    \caption{Comparison of (a,c) eddy viscosity and (b,d) mean velocity profiles between RANS models and DNS for turbulent channel flow of (a,b) $Re_\tau=180$ and (c,d) $Re_\tau=550$}
+    \label{fig: RAS-channel}
+\end{figure}
+
+The RANS equations coupled with the SA and $k$-$\omega$ models yield a one-dimensional system of nonlinear ordinary differential equations (ODEs).
+The numerical solution is obtained via Picard iteration~\citep{Hairer1993}, with the diffusion terms treated implicitly.
+To enhance robustness, all variables are updated using an under-relaxation scheme during the iterative process. For spatial discretization in the wall-normal direction ($y$), Chebyshev collocation points are utilized, identical to those employed in DNS. The derivatives are computed via Chebyshev polynomial approximation~\citep{Orszag_1971_accurate}, ensuring spectral accuracy. The iteration process is terminated when the residual converges to machine precision.
+
+

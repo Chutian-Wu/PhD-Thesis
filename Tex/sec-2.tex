@@ -1,0 +1,1261 @@
+\chapter{用于跨声速轴流压气机转子的神经网络湍流建模}\label{chap:2}
+
+% \section{引言}
+% 压气机是航空发动机的关键部件之一, 其性能直接影响发动机的整体性能表现。
+% 准确预测压气机内流能够为航空发动机性能评估提供先验依据~\citep{Sandberg2022}, 这对发动机的设计具有重要意义。
+% 基于Reynolds平均的Navier-Stokes (RANS)方法因其计算效率优势, 目前仍是预测压气机内流预测最常用的数值模拟方法。
+% 然而, RANS方法在预测中的准确度很大程度上取决于湍流模型的适用性, 因此发展高准确度湍流模型对压气机流场预测至关重要。
+% 研究表明, 传统涡黏模型在预测平均流动分离和曲率效应时往往存在显著偏差~\citep{wilcox1998turbulence}。
+% 压气机流动由于涉及边界层转捩、激波、叶尖泄漏涡及其复杂相互作用等物理现象, 对湍流模型的开发提出了特殊挑战。
+% 在过去的几十年中, 已经有多种湍流模型~\citep{Hah1991, Shabbir1996, Chima1998, Chima2009swift, Tartinville2006} (如Sparlart-Allmaras (SA)模型和$k$-$\varepsilon$模型)在NASA Rotor 37~\citep{Reid1978, suder1996experimental, dunham1998cfd}这个跨音速压气机转子的典型测试案例上进行了系统评估。
+% 为改进RANS预测, 近期的研究也尝试在模型中引入关键流动特征。
+% 例如, 通过在SA模型中引入螺旋度和压力梯度修正~\citep{he2020evaluation}, 显著改善了跨音速轴流压气机转子的总体性能(如总压比)预测。
+% 然而, 这些湍流模型在流场细节预测方面仍有待进一步改进。
+
+% 机器学习方法~\citep{ZHAO2020, brunton2021AMS, ZHU2021106452}具有从数据中学习复杂函数关系的能力, 正被越来越多地应用于湍流模型开发。
+% 目前提出的建模方法包括但不限于: 基于符号表达式~\citep{WEATHERITT201622, schmelzer2020discovery}、张量神经网络~\citep{ling2016reynolds}和随机森林~\citep{Wang2017PhysRevFluids,WU20191}的Reynolds应力表征方法。
+% 然而, 这些模型通常直接使用来自尺度解析模拟的Reynolds应力数据进行离线训练, 而获取压气机流动的Reynolds应力数据的计算成本极高~\citep{Yang2021}, 这是因为高Reynolds数流动的湍流具有极小的时空特征尺度, 从而需要极高计算资源进行解析~\citep{Yang2021}。
+% 此外, 叶轮机械流动的复杂特性(如叶片间干涉、排间干涉、层流-湍流转捩、喘振和失速等) ~\citep{gourdain2014large, TUCKER2011522, Sandberg2022, li2021large, li2022onset}也进一步增加了计算负担。
+% 为捕捉这些流动现象, 需要在叶片表面、端壁和叶尖间隙等区域进行网格加密, 必要时还需采用全周$\SI{360}{\degree}$计算域~\citep{sandberg2019current}。
+% 现有模型多采用一种先验(\textit{priori})方式训练, 即独立于CFD求解器, 这种训练环境与预测环境的不一致性会导致其与RANS求解器耦合时产生显著偏差~\citep{Duraisamy2021}。
+% 针对这些问题, 研究者提出了模型一致性训练策略~\citep{Duraisamy2021, STROFER2021TAML}, 通过将RANS求解器嵌入训练过程, 实现基于速度场等间接观测数据的湍流模型学习。
+% 其中, 集合Kalman方法~\citep{strofer2021ensemble,zhang2022}通过样本集合近似梯度和Hessian矩阵信息, 实现了隐式二阶优化, 其高效性使其在CFD计算昂贵的复杂构型中具有实用价值~\citep{Liu2023, Zhang2023POF}。
+% 模型一致性训练能够提升基于神经网络的湍流模型的预测能力, 但所获得的模型仍存在可解释性不足的问题。
+% 目前已有研究采用事后解释方法, 如Shapley(SHAP)分析~\citep{Adadi2018}, 来评估基于先验(\textit{priori})训练的神经网络湍流模型的特征重要性~\citep{HE2022}。
+% 由于模型一致性训练耦合神经网络训练和RANS方程求解, 除了对神经网络输入特征的分析外, 还需要基于学习得到的模型修正项来解释RANS计算中的预测改进机制。
+% 这与先验(\textit{priori})训练方法形成鲜明对比---后者仅需考察输入特征对神经网络输出的影响即可。
+
+% 本研究针对跨音速轴流压气机转子的数据驱动湍流建模可解释性问题展开研究。
+% 在SA湍流模型中引入基于神经网络的修正项, 其输入特征包含相关流场变量等关键参数。
+% 采用集合Kalman方法从速度场等多种观测数据中学习湍流模型, 并从模型输入输出两个维度系统分析神经网络对流动预测的影响机制。
+% 具体而言, 通过SHAP方法对输入特征进行可解释性分析, 重点考察了生成-耗散比和螺旋度等特征对输出的独立作用及交互效应, 揭示了这些参数在转子流动预测中的关键作用。
+% 另一方面, 研究还分析了学习得到的模型修正场对流动预测的影响, 发现其通过捕捉涡破裂区的非平衡效应显著改善了速度场预测精度。
+% 本章结构安排如下: 章节~\ref{sec:method} 阐述基于集合Kalman方法的转子流动湍流建模方法; 章节~\ref{sec:3-NumericalResults} 展示并分析测试算例及其数值结果; 章节~\ref{sec:explain} 对所建模型进行可解释性分析; 最后, 章节~\ref{sec:conclusion} 总结本章研究成果。
+
+
+% \subsection{RANS方程}
+% 旋转坐标系下可压缩流动的Reynolds平均Navier-Stokes方程可表述为
+% \begin{subequations}
+%     \label{eq:NSEquations}
+%     \begin{equation}
+%         \frac{\p\rho}{\p t}+\frac{\p(\rho u_j)}{\p x_j}=0,
+%     \end{equation}
+%     \begin{equation}
+%         \frac{\p(\rho u_i)}{\p t}+\frac{\p\bra{\rho u_i u_j+p\delta_{ij}}}{\p x_j}=\frac{\p}{\p x_j}(\sigma_{ij}+\tau_{ij})+\rho f_i,
+%     \end{equation}
+%     \begin{equation}
+%         \frac{{\partial (\rho E)}}{{\partial t}} +\frac{\p\sbra{\bra{\rho E+p}u_j}}{\p x_j}=\frac{\p }{\p x_j}\sbra{(\sigma_{ij}+\tau_{ij})u_i-q_j-q^{t}_j}\text{.}
+%     \end{equation}
+% \end{subequations}
+% 式中$u_i$为相对速度, 科氏力与离心力由$f_i=-2\varepsilon_{ijk}\Omega_ju_k+\frac{\partial}{\partial x_i}\left(\Omega^2 r^2/2\right)$表征, 其中$\Omega=\sqrt{\Omega_i\Omega_i}$为角速度模量, $r$表示距转轴的径向距离, $\varepsilon_{ijk}$为置换张量。
+% 总能量$E$定义为$E=\frac{1}{\gamma-1}{p}/{\rho}+\frac{1}{2}\left(u_iu_i-\Omega^2r^2\right)$, 其中$\gamma=1.4$为空气比热比。
+% 状态方程$p=\rho R T$关联了密度$\rho$、静压$p$与静温$T$, 气体常数$R=\SI{287.03}{\metre\squared\per\second\squared\per\kelvin}$。
+% 粘性应力张量$\sigma_{ij}$与热流$q_j$定义为
+% \begin{equation}
+%     \sigma_{ij}=\mu \bra{2S_{ij}-\frac{2}{3}\frac{\p u_k}{\p x_k}\delta_{ij}},
+%     \quad
+%     q_j=-\kappa \frac{\p T}{\p x_j}.
+% \end{equation}
+% 平均应变率张量为
+% \begin{equation}
+%     S_{ij}=\frac{1}{2}\bra{\frac{\p u_i}{\p x_j}+\frac{\p u_j}{\p x_i}}.
+% \end{equation}
+% 导热系数$\kappa$可表示为$\kappa=\mu c_p/Pr$, 其中Prandtl数$Pr=0.72$, 定压比热$c_p=\frac{\gamma}{\gamma-1}R$。
+% 动态粘性系数$\mu$通过Sutherland定律随温度变化。
+% 基于Boussinesq假设, Reynolds应力$\tau_{ij}$与湍流热流$q^t_j$表述为
+% \begin{equation}
+%     \tau_{ij}=\mu_\text{t}\bra{2S_{ij}-\frac{2}{3}\frac{\p u_k}{\p x_k}\delta_{ij}},
+%     \quad
+%     q^{t}_j=-\frac{\mu_\text{t}c_p}{Pr_\text{t}}\frac{\p T}{\p x_j},
+% \end{equation}
+% 式中湍流Prandtl数$Pr_\text{t}=0.9$, $\mu_\text{t}$为湍流模型给出的涡黏系数。
+
+% 单方程Spalart-Allmaras (SA)湍流模型~\citep{spalart1992}因其较高的计算效率, 被广泛用于压气机转子流动的数值模拟。
+% 该模型通过
+% \begin{equation}
+%     \mu_\text{t}=\rho \tilde{\nu} f_{v1},
+% \end{equation}
+% 计算涡黏系数, 其中$f_{v1}$为中间函数, 工作变量$\tilde{\nu}$通过输运方程求解:
+% \begin{equation}
+%     \frac{\p\tilde{\nu}}{\p t}+u_j\frac{\p\tilde{\nu}}{\p x_j}=\mathcal{P}-\mathcal{D}+\mathcal{T} \text{.}
+% \end{equation}
+% 方程右侧依次为生成项、耗散项和扩散项。
+% 该工作变量$\tilde{\nu}$的输运方程基于附着边界层流动的平衡湍流假设推导而来~\citep{HE2022}, 对于具有强非平衡效应的流动往往会产生显著预测偏差。
+% 为解决该问题, 研究~\citep{singh2017machine}在SA模型的生成项中引入修正系数$\beta$
+% \begin{equation}
+%     \frac{\p\tilde{\nu}}{\p t}+u_j\frac{\p\tilde{\nu}}{\p x_j} = \beta \mathcal{P}-\mathcal{D} + \mathcal{T} \text{.}
+% \end{equation}
+% SA方程中的生成项、耗散项和扩散项分别为
+% \begin{equation}
+%     \label{equ:SA-terms}
+%     \begin{aligned}
+%         \mathcal{P} & =c_{b1}(1-f_{t2})\tilde{S}\tilde{\nu},                                                                                                      \\
+%         \mathcal{D} & =\left(c_{w1}f_w-\frac{c_{b1}}{\kappa^2}f_{t2}\right)\left(\frac{\tilde{\nu}}{d}\right)^2,                                                  \\
+%         \mathcal{T} & =\frac{1}{\sigma}\left(\nabla\cdot\left(\left(\nu+\tilde{\nu}\right)\nabla\tilde{\nu}\right)+c_{b2}\left(\nabla\tilde{\nu}\right)^2\right),
+%     \end{aligned}
+% \end{equation}
+% 其中
+% \begin{equation}
+%     \tilde{S}=S+\frac{\tilde{\nu}}{\kappa^2 d^2}f_{v2},
+% \end{equation}
+% 其中 $S$ 是涡量的模, $d$ 为离壁距离。
+% 模型方程中的其它函数为
+% \begin{equation}
+%     f_{v1}=\frac{\chi^3}{\chi^3+c_{v1}^3},\quad f_{v2}=1-\frac{\chi}{1+\chi f_{v1}},\quad f_w=g\left[\frac{1+c_{w3}^6}{g^6+c_{w3}^6}\right]^{1/6},
+% \end{equation}
+% 其中 $\chi\equiv\tilde{\nu}/\nu, g=r+c_{w2}\bra{r^6-r}, r\equiv{\tilde{\nu}}/(\tilde{S}\kappa^2 d^2).$
+% 特定常数为 $c_{b1},c_{b2},\kappa,\sigma,c_{w1}=c_{b1}/\kappa+(1+c_{b2})/\sigma,c_{w2},c_{w3},c_{v1}$。
+% 壁面边界条件为 $\tilde{\nu}=0$.
+% 同时, 在模拟中忽略和函数 $f_{t2}$ 相关的项。
+% 为了考虑能量逆级串, 通过修正
+% \begin{equation}
+%     \tilde{S}=\left(1+C_{h1}h^{C_{h2}}\right)\omega+\frac{\tilde{\nu}}{\kappa^2 d^2}f_{\nu 2},
+% \end{equation}
+% ~\citep{Liu20112377}提出螺旋度修正的SA模型。
+% 其中$h$是螺旋度, $C_{h1}=0.71,C_{h2}=0.6$ 为常数。
+% 通过该方法, 可基于选定的输入特征构建修正函数$\beta$, 并通过最小化模型预测与实验数据的差异来进行学习。
+% 该无量纲系数$\beta$能够提供基准SA模型对应的合理初始值(即$\beta=1$) 。
+% 该修正的物理本质在于: 当传统模型假定生成项与耗散项为固定比例时~\citep{YAN2022109004}, 通过$\beta$来考虑非平衡效应的影响。
+% 引入$\beta(\boldsymbol{x})$相当于增加了一个额外源项$ (\beta(\bm{x})-1)\mathcal{P}$, 这不仅修改了生成项, 更改变了模型的整体平衡关系~\citep{Anand2017Augmentation}。
+% 需说明的是, 类似修正也可施加于耗散项(如文献~\citep{Karthikeyan2015}所示) 。
+% 前期研究~\citep{PARISH2016758, Duraisamy2016, singh2017machine, singh2017machine, Anand2017Augmentation, Duraisamy2019annurev}已证明该修正方法能有效提升RANS模型的预测精度, 因此本文采用该框架来改进跨声速压气机流动的湍流模型。
+
+\section{引言}
+
+% 逻辑结构
+
+% 1️⃣ 工程背景：压气机预测重要性
+% 2️⃣ RANS 是主流，但湍流模型是瓶颈
+% 3️⃣ 传统模型不足 → 机器学习成为新方向
+% 4️⃣ 机器学习面临三大问题：
+
+% 数据获取代价极高
+
+% 先验训练与求解环境不一致
+
+% 可解释性不足
+% 5️⃣ 模型一致性训练是关键突破
+% 6️⃣ 但可解释性问题尚未解决 → 本研究切入点
+% 7️⃣ 本研究工作与结构
+
+压气机是航空发动机的核心部件之一，其气动性能直接决定发动机的整体效率与稳定裕度。
+因此，准确预测压气机内部流动特征，对于发动机性能评估与优化设计具有重要意义~\citep{Sandberg2022}。
+在工程实践中，基于 Reynolds 平均 Navier--Stokes（RANS）方程的方法因其较高的计算效率，仍是压气机流动数值预测的主流手段。
+然而，RANS 方法的预测精度高度依赖于所采用的湍流模型，湍流建模问题依然是限制其预测准确度的关键因素。
+
+研究表明，传统涡黏模型在处理流动分离、曲率效应及强非平衡流动时往往存在显著偏差~\citep{wilcox1998turbulence}。
+跨音速轴流压气机转子内部流动涉及边界层转捩、激波-边界层干扰、叶尖泄漏涡及其复杂相互作用等多种物理机制，
+这些现象对湍流模型的适用性提出了更高要求。
+过去几十年中，多种湍流模型~\citep{Hah1991, Shabbir1996, Chima1998, Chima2009swift, Tartinville2006}
+（如 Spalart-Allmaras (SA) 模型与 $k$-$\varepsilon$ 模型）已在 NASA Rotor 37~\citep{Reid1978, suder1996experimental, dunham1998cfd}
+这一典型跨音速压气机算例上进行了系统评估。
+近年来，一些改进工作通过引入关键流动特征修正模型形式，例如在 SA 模型中加入螺旋度与压力梯度修正项~\citep{he2020evaluation}，显著提升了总体性能参数（如总压比）的预测精度。
+然而，这类经验修正方法在复杂流场细节预测方面仍存在不足。
+
+随着机器学习技术的发展，其从数据中逼近复杂函数映射关系的能力，为湍流建模提供了新的思路~\citep{ZHAO2020, brunton2021AMS, ZHU2021106452}。
+现有研究已提出多种基于数据驱动的 Reynolds 应力建模方法，
+包括符号回归模型~\citep{WEATHERITT201622, schmelzer2020discovery}、
+张量基神经网络~\citep{ling2016reynolds} 以及随机森林方法~\citep{Wang2017PhysRevFluids,WU20191}。
+然而，这些方法通常依赖尺度解析模拟（如 LES 或 DNS）提供的 Reynolds 应力数据进行先验（\textit{a priori}）离线训练。
+对于压气机流动而言，由于高 Reynolds 数湍流具有极小的时空尺度，
+获取高保真应力数据的计算代价极高~\citep{Yang2021}。
+此外，叶轮机械流动中的叶片间干涉、排间干涉、转捩过程及失速等复杂现象~\citep{gourdain2014large, TUCKER2011522, Sandberg2022, li2021large, li2022onset}
+往往要求在叶片表面、端壁和叶尖间隙区域进行高分辨率网格加密，
+甚至采用 $\SI{360}{\degree}$ 全周计算域~\citep{sandberg2019current}，
+进一步增加了高保真数据获取的难度。
+
+除数据获取困难外，传统的先验训练方式还存在训练环境与预测环境不一致的问题。
+这类模型在独立于 CFD 求解器的条件下进行训练，
+在与 RANS 方程耦合求解时可能产生显著偏差~\citep{Duraisamy2021}。
+为解决这一问题，研究者提出了模型一致性（\textit{model-consistent}）训练策略~\citep{Duraisamy2021, STROFER2021TAML}，
+通过将 RANS 求解器嵌入训练流程，
+利用速度场等间接观测量对湍流模型进行反演学习。
+其中，集合 Kalman 方法~\citep{strofer2021ensemble,zhang2022}
+通过样本集合近似梯度与 Hessian 信息，实现隐式二阶优化，
+在 CFD 计算代价较高的复杂构型中展现出良好的效率与稳定性~\citep{Liu2023, Zhang2023POF}。
+
+尽管模型一致性训练显著提升了数据驱动湍流模型的预测能力，
+但所获得的神经网络模型通常缺乏物理可解释性。
+现有研究多采用事后解释方法，
+如 Shapley（SHAP）分析~\citep{Adadi2018}，
+对先验训练模型的输入特征重要性进行评估~\citep{HE2022}。
+然而，在模型一致性训练框架下，
+神经网络与 RANS 方程紧密耦合，
+预测改进不仅源于输入特征对网络输出的影响，
+还涉及模型修正项在流场演化中的物理作用机制。
+因此，有必要从“输入特征作用机制”与“模型修正场物理影响”两个层面，
+系统分析数据驱动湍流模型的可解释性。
+
+基于上述背景，本文针对跨音速轴流压气机转子的湍流建模问题，
+构建了一种基于集合 Kalman 方法的模型一致性数据驱动框架。
+在 SA 湍流模型中引入神经网络修正项，
+利用速度场等间接观测数据进行训练，
+并从模型输入与输出两个维度对其物理作用机制进行系统分析。
+具体而言，
+通过 SHAP 方法评估输入特征的重要性及其交互效应，
+重点考察生成-耗散比与螺旋度等特征对模型输出的影响；
+同时分析学习得到的模型修正场在流动结构中的空间分布，
+揭示其通过捕捉涡破裂区域非平衡效应而改善预测精度的机理。
+
+本章结构安排如下：
+章节~\ref{sec:method} 介绍基于集合 Kalman 方法的湍流建模框架；
+章节~\ref{sec:3-NumericalResults} 给出数值算例及结果分析；
+章节~\ref{sec:explain} 对模型进行可解释性研究；
+最后，章节~\ref{sec:conclusion} 总结本章主要结论。
+
+\section{基于集合Kalman方法的湍流建模框架}\label{sec:method}
+\subsection{RANS方程}
+在旋转坐标系下，可压缩流动的 Reynolds 平均 Navier--Stokes（RANS）方程可写为
+\begin{subequations}
+    \label{eq:NSEquations}
+    \begin{equation}
+        \frac{\p\rho}{\p t}+\frac{\p(\rho u_j)}{\p x_j}=0,
+    \end{equation}
+    \begin{equation}
+        \frac{\p(\rho u_i)}{\p t}+\frac{\p\bra{\rho u_i u_j+p\delta_{ij}}}{\p x_j}
+        =\frac{\p}{\p x_j}(\sigma_{ij}+\tau_{ij})+\rho f_i,
+    \end{equation}
+    \begin{equation}
+        \frac{{\partial (\rho E)}}{{\partial t}}
+        +\frac{\p\sbra{\bra{\rho E+p}u_j}}{\p x_j}
+        =\frac{\p }{\p x_j}\sbra{(\sigma_{ij}+\tau_{ij})u_i-q_j-q^{t}_j}.
+    \end{equation}
+\end{subequations}
+其中 $u_i$ 为相对速度分量，$f_i=-2\varepsilon_{ijk}\Omega_ju_k+\frac{\partial}{\partial x_i}\left(\Omega^2 r^2/2\right)$表示科氏力与离心力项。
+总能量定义为
+\begin{equation}
+    E=\frac{1}{\gamma-1}\frac{p}{\rho}
+    +\frac{1}{2}\left(u_iu_i-\Omega^2r^2\right),
+\end{equation}其中 $\gamma=1.4$。
+状态方程 $p=\rho R T$ 关联密度、压力与温度，气体常数$R=\SI{287.03}{\joule\per\kilogram\per\kelvin}$。
+粘性应力张量与热流通量分别为
+\begin{equation}
+    \sigma_{ij}=\mu \bra{2S_{ij}-\frac{2}{3}\frac{\p u_k}{\p x_k}\delta_{ij}},
+    \quad
+    q_j=-\kappa \frac{\p T}{\p x_j},
+\end{equation}
+其中
+\begin{equation}
+    S_{ij}=\frac{1}{2}\bra{\frac{\p u_i}{\p x_j}+\frac{\p u_j}{\p x_i}}.
+\end{equation}
+导热系数 $\kappa=\mu c_p/Pr$，$Pr=0.72$。
+动态粘性系数 $\mu$ 由 Sutherland 定律给出。
+RANS 方程中的关键闭合问题体现在 Reynolds 应力 $\tau_{ij}$ 与湍流热流 $q_j^t$ 的建模。
+基于 Boussinesq 假设，其形式为
+\begin{equation}
+    \tau_{ij}=\mu_\text{t}\bra{2S_{ij}-\frac{2}{3}\frac{\p u_k}{\p x_k}\delta_{ij}},
+    \quad
+    q^{t}_j=-\frac{\mu_\text{t}c_p}{Pr_\text{t}}\frac{\p T}{\p x_j},
+\end{equation}
+其中 $Pr_\text{t}=0.9$，$\mu_\text{t}$ 为湍流模型提供的涡黏系数。
+因此，涡黏$\mu_\text{t}$ 的预测准确度直接决定了 RANS 解的准确性。
+
+单方程 Spalart-Allmaras（SA）模型~\citep{spalart1992}因其计算效率高, 在压气机转子流动模拟中得到广泛应用。
+该模型通过
+\begin{equation}
+    \mu_\text{t}=\rho \tilde{\nu} f_{v1},
+\end{equation}
+计算涡黏系数，其中工作变量 $\tilde{\nu}$ 由输运方程
+\begin{equation}
+    \frac{\p\tilde{\nu}}{\p t}+u_j\frac{\p\tilde{\nu}}{\p x_j}
+    =\mathcal{P}-\mathcal{D}+\mathcal{T}
+\end{equation}
+给出。
+右侧三项分别为生成项、耗散项与扩散项，其具体形式见式~\eqref{equ:SA-terms}。
+其具体形式为
+\begin{equation}
+    \label{equ:SA-terms}
+    \begin{aligned}
+        \mathcal{P}
+         & =c_{b1}(1-f_{t2})\tilde{S}\tilde{\nu},                \\
+        \mathcal{D}
+         & =\left(c_{w1}f_w-\frac{c_{b1}}{\kappa^2}f_{t2}\right)
+        \left(\frac{\tilde{\nu}}{d}\right)^2,                    \\
+        \mathcal{T}
+         & =\frac{1}{\sigma}
+        \left[
+        \nabla\cdot\left((\nu+\tilde{\nu})\nabla\tilde{\nu}\right)
+        +c_{b2}(\nabla\tilde{\nu})^2
+        \right].
+    \end{aligned}
+\end{equation}
+其中
+\begin{equation}
+    \tilde{S}
+    =S+\frac{\tilde{\nu}}{\kappa^2 d^2}f_{v2},
+\end{equation}
+$S=\sqrt{2\Omega_{ij}\Omega_{ij}}$ 为涡量模，$d$ 为到最近壁面的距离。
+模型中涉及的函数为
+\begin{equation}
+    f_{v1}=\frac{\chi^3}{\chi^3+c_{v1}^3}, \quad
+    f_{v2}=1-\frac{\chi}{1+\chi f_{v1}},
+\end{equation}
+\begin{equation}
+    f_w=g\left[
+    \frac{1+c_{w3}^6}{g^6+c_{w3}^6}
+    \right]^{1/6},
+\end{equation}
+其中
+\begin{equation}
+    \chi=\frac{\tilde{\nu}}{\nu}, \quad
+    r=\frac{\tilde{\nu}}{\tilde{S}\kappa^2 d^2}, \quad
+    g=r+c_{w2}(r^6-r).
+\end{equation}
+模型常数为
+$c_{b1},c_{b2},\kappa,\sigma,
+    c_{w1}=c_{b1}/\kappa^2+(1+c_{b2})/\sigma,
+    c_{w2},c_{w3},c_{v1}$。
+壁面边界条件为 $\tilde{\nu}=0$。
+在本文计算中忽略与 $f_{t2}$ 相关的项。
+
+SA 模型基于附着边界层平衡湍流假设建立，
+其核心思想是生成项与耗散项在统计意义下维持固定比例关系。
+然而，在激波干扰、强曲率及涡破裂等非平衡流动中，
+该平衡假设往往失效，
+从而导致预测偏差。
+为增强模型对非平衡效应的响应能力，
+研究~\citep{singh2017machine}在生成项中引入修正系数 $\beta$：
+\begin{equation}
+    \frac{\p\tilde{\nu}}{\p t}+u_j\frac{\p\tilde{\nu}}{\p x_j}
+    = \beta \mathcal{P}-\mathcal{D} + \mathcal{T}.
+\end{equation}
+当 $\beta=1$ 时恢复基准 SA 模型，
+因此该框架为数据驱动修正提供了物理一致的初始状态。
+从物理角度看，
+引入 $\beta(\boldsymbol{x})$ 等价于增加附加源项
+\begin{equation}
+    (\beta(\boldsymbol{x})-1)\mathcal{P},
+\end{equation}
+从而打破原有生成与耗散之间的固定比例关系，
+使模型能够刻画非平衡湍流效应~\citep{Anand2017Augmentation}。
+类似的修正也可施加于耗散项~\citep{Karthikeyan2015}，
+但本文采用生成项修正形式。
+为进一步考虑能量逆级串效应，
+文献~\citep{Liu20112377}在 $\tilde{S}$ 中引入螺旋度修正：
+\begin{equation}
+    \tilde{S}=\left(1+C_{h1}h^{C_{h2}}\right)\omega
+    +\frac{\tilde{\nu}}{\kappa^2 d^2}f_{\nu 2},
+\end{equation}
+其中 $h$ 为螺旋度，
+$C_{h1}=0.71, C_{h2}=0.6$。
+该修正增强了模型对旋转主导流动结构的响应能力。
+
+基于上述生成项修正框架，
+可将 $\beta$ 视为与局部流动特征相关的函数，
+并通过最小化模型预测与观测数据之间的差异进行学习。
+该方法在保持 SA 模型基本结构与数值稳定性的同时，
+为刻画非平衡湍流效应提供了额外自由度。
+前期研究~\citep{PARISH2016758, Duraisamy2016, singh2017machine, Anand2017Augmentation, Duraisamy2019annurev}
+已表明，该类模型增强方法能够显著提升 RANS 预测精度。
+因此，本文在该框架下，针对跨音速压气机转子流动开展数据驱动湍流模型修正研究。
+
+\subsection{基于神经网络的湍流建模}
+神经网络因其优异的非线性表达能力，近年来被广泛应用于湍流建模问题，尤其在Reynolds应力闭合与模型修正项构建方面展现出良好潜力。本文采用前馈神经网络（Feedforward Neural Network, FNN）对Spalart–Allmaras（SA）湍流模型中的修正项 $\beta$ 进行数据驱动建模。
+
+神经网络输入由5个无量纲特征构成：
+\begin{equation}
+    \bm{q}=\cbra{\frac{\mathcal{P}}{\mathcal{D}},\quad \frac{\| \bm{S} \|}{\| \Omega \|},\quad \delta,\quad \chi,\quad h} \text{.}
+    \label{eq:feature}
+\end{equation}
+其中前四个特征由~\citep{holland2019field}提出并选定，第五个特征量——螺旋度 $h$ ——基于压气机复杂三维流动湍流建模经验~\citep{Liu20112377}引入。
+特征量 $q_1=\mathcal{P}/\mathcal{D}$ 表示SA模型中生成项与耗散项之比，用于表征流动的局部非平衡效应。当 $\mathcal{P}/\mathcal{D}\neq 1$ 时，流场处于非平衡状态，该特征能够反映模型结构误差与真实流动之间的偏差。
+
+特征量 $q_2=\|\bm{S}\|/\|\Omega\|$ 为应变率张量模与涡量模的比值，用于度量剪切应变与旋转运动的相对重要性。在分离流动及旋涡主导区域，该特征具有较强的流动判别能力。
+特征量 $q_3$ 作为逆压梯度指示因子，定义为
+\begin{equation}
+    \label{equ:feature-delta}
+    \delta=\frac{2}{3}\frac{\mu_t\| \bm{S} \|}{\tau_w} \text{,}
+\end{equation}
+其中 $\mu_t$ 为湍流黏性系数，$\tau_w$ 为最近壁面处剪切应力。其物理意义在于表征当地剪切应力与壁面剪切应力之间的比例关系。\citep{medida2014correlation} 将该特征用于SA模型修正，显著提升了二维翼型大攻角流动的预测精度，说明该参数对逆压梯度分离流动具有良好的敏感性。
+
+特征量 $q_4=\chi$ 定义为工作变量 $\tilde{\nu}$ 与分子黏性系数 $\nu$ 的比值，即
+\[
+    \chi=\frac{\tilde{\nu}}{\nu} \text{,}
+\]
+该特征衡量湍流黏性与分子黏性的相对强度，是SA模型中的核心无量纲变量。
+特征量 $q_5$ 为当地螺旋度 $h$，其定义为
+\begin{equation}
+    h=\frac{\bm{u}\cdot\bm{\omega}}{\| \bm{u} \| \|\bm{\omega}\|} \text{,}
+\end{equation}
+其中 $\bm{u}$ 为速度矢量，$\bm{\omega}$ 为涡量矢量。该参数表征速度与涡量方向之间的夹角余弦值，从拓扑角度反映流动中涡线的缠绕特性。
+
+需要指出的是，由于涉及速度矢量，螺旋度并不满足伽利略不变性。然而已有研究表明，螺旋度与流体中涡结构的拓扑演化密切相关~\citep{Cui2021}，而此类结构正是非线性能量传递过程（例如能量反向输运）中的典型流动模式。相关研究在压气机叶栅~\citep{Liu20112377}和压气机转子~\citep{Cui2021}中考虑该物理机制后，成功改进了SA模型预测精度。因此，本文将螺旋度作为附加输入特征之一。
+
+各输入特征的汇总信息见表~\ref{tab:input-features}。
+
+原始输入特征通过
+\[
+    q=F_q^{-1}\big(F_z(z)\big)
+\]
+映射为标准Gaussian分布，其中 $z$ 为原始特征，$F_z(z)$ 为其累积分布函数，$F_q(q)$ 为标准正态分布累积分布函数。经过Gaussian标准化处理后，所有输入特征均转化为零均值、单位方差分布，从而提高神经网络训练的稳定性与收敛效率。
+
+章节~\ref{sec:wo_helicity} 展示了未采用螺旋度与生成–耗散比特征的训练结果。对比实验结果表明，引入这两个特征能够显著提升模型泛化能力与复杂流动预测精度。
+
+\begin{table}[!htb]
+    \centering
+    \bicaption{神经网络输入特征。
+    }{Input features of neural network.}
+    \begin{tabular}{lll}
+        \toprule
+        输入  & 物理意义                  & 描述                        \\
+        \midrule
+        $q_1$ & $\mathcal{P}/\mathcal{D}$ & 生成项与耗散项比值          \\
+        $q_2$ & $\|\bm{S}\|/\|\Omega\|$   & 应变率模与涡量模比值        \\
+        $q_3$ & $\delta$                  & 逆压梯度指示因子            \\
+        $q_4$ & $\chi$                    & SA 模型解变量与分析黏性比值 \\
+        $q_5$ & $h$                       & 速度和涡量方向一致性        \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:input-features}
+\end{table}
+
+% \subsection{集合 Kalman 方法训练神经网络}
+% 本研究采用集成Kalman方法训练神经网络权重, 该方法兼具高效性与易实现性双重优势。
+% 具体而言, 该方法通过引入低秩近似的Hessian矩阵信息, 实现了二阶优化效果。
+% 此外, 该方法的非侵入式特性与免导数需求, 使得CFD求解器无需额外代码重构即可直接应用。
+% 集成Kalman方法是一种基于蒙特卡洛采样的统计推断技术。
+% 该方法通过随机抽取权重样本, 并利用样本协方差估计目标函数梯度。
+% 待最小化的目标函数定义为:
+% $$ J= \| \mathsf{w}^{i+1} - \mathsf{w}^{i}  \|_{\mathsf{P}^i} + \| \mathcal{H}[\mathsf{w}^{i+1}] - \mathsf{y} \|_{\mathsf{R}^{i}},$$
+% 其中 $\mathsf{w}$ 表示神经网络权重参数, $\mathsf{P}$ 为样本协方差矩阵, $\mathcal{H}$ 为将网络权重映射至观测量的模型算子, $\mathsf{R}$ 是观测误差协方差矩阵,  $\mathsf{y}$ 为符合Gaussian分布$\mathcal{N}(0,\mathsf{R})$的含噪观测数据
+% 该方法采用集合实现来估计样本统计量, 其样本均值$\bar{\mathsf{W}}$与协方差$\mathsf{P}$的计算公式为:
+% \begin{equation}
+%     \begin{aligned}
+%         \bar{\mathsf{W}}^i & = \frac{1}{M} \sum_{j=1}^M \mathsf{w}_{j}^i \text{,}                                               \\
+%         \mathsf{P}^i       & = \frac{1}{M-1} (\mathsf{W}^i - \bar{\mathsf{W}}^i)(\mathsf{W}^i-\bar{\mathsf{W}}^i)^\top \text{,}
+%     \end{aligned}
+% \end{equation}
+% 式中: $M$为样本容量, $i$表示迭代次数, $j$为样本编号, $\mathsf{W}={ \mathsf{w}j }{j=1}^M$表示样本集合。
+% 根据Gaussian-Newton方法, 神经网络权重的迭代更新需要梯度及Hessian矩阵信息。
+% 集成Kalman方法通过样本协方差估计梯度与Hessian信息~\citep{luo2015iterative}。
+% 在第$i$次迭代中, 各样本$\mathsf{w}_j$的更新格式为:
+% \begin{equation}
+%     \mathsf{w}_j^{i+1} = \mathsf{w}_j^i + \mathsf{P}^i \mathsf{H}^\top (\mathsf{H} \mathsf{P}^i \mathsf{H}^\top + \mathsf{R}^i)^\top (\mathsf{y}_j - \mathsf{Hw}_j^i) \text{,}
+%     \label{eq:enkf}
+% \end{equation}
+% 其中 $\mathsf{H}$为切线性观测算子。
+% 具体推导详见文献~\citep{zhang2022}。
+
+% 图~\ref{fig:framework} 展示了基于集成Kalman的压气机转子湍流建模流程, 主要包含以下步骤:
+% \begin{itemize}
+%     \item [(a)] \textbf{权重预训练}: 神经网络权重经预训练生成基准值($\beta=1$) , 并基于Gaussian分布在预训练权重附近生成初始样本集;
+%     \item [(b)] \textbf{特征提取}: 从预测流场中提取流动特征$q$作为神经网络输入, 通过网络前向传播获得模型修正量$\beta$;
+%     \item[(c)] \textbf{流场求解}: 通过求解RANS方程, 将修正量$\beta$传递至Mach数、质量流量、总压比及绝热效率等关键气动参数预测;
+%     \item[(d)] \textbf{权重更新}: 基于流场预测与实验观测数据的集合统计分析更新网络权重。
+
+% \end{itemize}
+% 当数据失配度低于观测噪声水平或达到最大迭代次数时, 终止(b)-(d)步骤的迭代过程。
+
+
+
+
+\subsection{集合Kalman方法训练神经网络}
+
+本研究采用集合Kalman方法（Ensemble Kalman Method, EnKM）对神经网络权重进行训练。该方法兼具高效性与易实现性双重优势。一方面，通过引入基于样本协方差的低秩Hessian矩阵近似，可实现类似二阶优化的收敛效果；另一方面，该方法具有非侵入式和免导数特性，使得CFD求解器无需额外代码重构即可直接耦合应用。
+
+集合Kalman方法是一种基于蒙特卡洛采样的统计推断技术。其基本思想是通过随机抽取权重样本，并利用样本统计量估计目标函数的梯度与曲率信息。待最小化的目标函数定义为
+\begin{equation}
+    J =
+    \| \mathsf{w}^{i+1} - \mathsf{w}^{i} \|_{\mathsf{P}^i}
+    +
+    \| \mathcal{H}[\mathsf{w}^{i+1}] - \mathsf{y} \|_{\mathsf{R}^{i}},
+\end{equation}
+其中：
+
+$\mathsf{w}$ 表示神经网络权重参数，
+
+$\mathsf{P}$ 为样本协方差矩阵，
+
+$\mathcal{H}$ 为将网络权重映射至观测量空间的模型算子，
+
+$\mathsf{R}$ 为观测误差协方差矩阵，
+
+$\mathsf{y}$ 为满足Gaussian分布 $\mathcal{N}(0,\mathsf{R})$ 的含噪观测数据。
+
+该方法采用集合实现以估计样本统计量。在第 $i$ 次迭代中，样本均值 $\bar{\mathsf{W}}^i$ 与协方差 $\mathsf{P}^i$ 计算公式为
+\begin{equation}
+    \begin{aligned}
+        \bar{\mathsf{W}}^i
+         & = \frac{1}{M} \sum_{j=1}^{M} \mathsf{w}_j^i, \\
+        \mathsf{P}^i
+         & = \frac{1}{M-1}
+        \left( \mathsf{W}^i - \bar{\mathsf{W}}^i \right)
+        \left( \mathsf{W}^i - \bar{\mathsf{W}}^i \right)^{\top},
+    \end{aligned}
+\end{equation}
+其中，$M$ 为样本容量，$i$ 表示迭代次数，$j$ 为样本编号，$\{ \mathsf{w}_j^i \}_{j=1}^{M}$ 表示第 $i$ 次迭代的权重样本集合。
+
+根据Gauss–Newton方法，神经网络权重的迭代更新通常需要梯度与Hessian矩阵信息。集合Kalman方法通过样本协方差构造梯度及Hessian矩阵的低秩近似，从而避免显式求导过程~\citep{luo2015iterative}。
+
+在第 $i$ 次迭代中，各样本 $\mathsf{w}_j$ 的更新格式为
+\begin{equation}
+    \mathsf{w}_j^{i+1}
+    =
+    \mathsf{w}_j^{i}
+    +
+    \mathsf{P}^{i}
+    \mathsf{H}^{\top}
+    \left(
+    \mathsf{H}
+    \mathsf{P}^{i}
+    \mathsf{H}^{\top}
+    +
+    \mathsf{R}^{i}
+    \right)^{-1}
+    \left(
+    \mathsf{y}_j
+    -
+    \mathsf{H}
+    \mathsf{w}_j^{i}
+    \right),
+    \label{eq:enkf}
+\end{equation}
+其中 $\mathsf{H}$ 为切线性观测算子。该更新格式本质上对应于Kalman增益矩阵的构造过程。具体数学推导可参见文献~\citep{zhang2022}。
+
+图~\ref{fig:framework} 展示了基于集合Kalman方法的压气机转子湍流建模训练流程，主要包括以下步骤：
+
+\begin{itemize}
+    \item[(a)] \textbf{权重预训练}：神经网络权重首先通过预训练获得基准解（$\beta=1$），随后在该基准权重附近基于Gaussian分布生成初始样本集合；
+    \item[(b)] \textbf{特征提取}：从预测流场中提取流动特征 $q$ 作为神经网络输入，通过前向传播获得模型修正量 $\beta$；
+    \item[(c)] \textbf{流场求解}：通过求解RANS方程，将修正量 $\beta$ 传递至Mach数、质量流量、总压比及绝热效率等关键气动参数预测；
+    \item[(d)] \textbf{权重更新}：基于流场预测结果与实验观测数据之间的集合统计差异，采用集合Kalman方法更新网络权重。
+\end{itemize}
+
+当数据失配度低于观测噪声水平，或达到预设最大迭代次数时，终止步骤(b)–(d)的迭代过程。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.75\textwidth]{Img/chap-2/framework.png}
+    \bicaption{SA湍流模型基于集成学习的神经网络训练框架。
+        该框架包含以下关键步骤: (a)在神经网络参数空间进行概率采样, 生成初始权重集合; (b)通过求解RANS方程, 将模型修正量$\beta$传递至速度场预测; (c)融合实验观测数据, 采用集成Kalman方法更新网络权重。
+    }{Framework of the ensemble-based neural network training for the SA turbulence model.
+        The framework consists of the following steps:
+        (a) sampling the weights of the neural network;
+        (b) propagate the model correction~$\beta$ to velocity by solving the RANS equations;
+        (c) update the neural network weights by incorporating observation data.}
+    \label{fig:framework}
+\end{figure}
+
+% \subsection{神经网络模型可解释性分析}
+% \label{sec:shap-method}
+% 由于神经网络模型的高复杂度, 传统内在解释方法~\citep{molnar2020interpretable}难以直接应用于可解释性分析。
+% 可行的替代方案是采用后验分析方法来建立网络输入与输出之间的因果关系。
+% Shapley附加解释(SHAP)方法~\citep{Lundberg2017}作为当前广泛使用的后验分析技术, 其理论基础源自合作博弈论: 将每个输入特征视为博弈参与者, 模型预测值作为博弈收益, 通过计算各特征对预测结果的贡献度(即重要性指标)来实现解释。
+
+
+% 在本研究的神经网络模型中, 网络输出量$\beta$可分解为各特征贡献量之和, 其数学表达式为:
+% \begin{equation}
+%     \beta=\phi_0+\sum_{i=1}^5\phi_i,
+% \end{equation}
+% 式中: $\phi_i$表示第$i$个输入特征$q_i$的贡献量, $\phi_0$为模型基准输出(即输出量的均值) 。
+% SHAP 值反映了各特征的贡献, 其计算公式如下:
+% \begin{equation}
+%     \phi_i=\sum_{S \subseteq F \backslash\{i\}} \frac{|S| !(|F|-|S|-1) !}{|F| !}\delta_S(i) \text{,} \quad
+%     \delta_S(i)=f_{S \cup\{i\}} \bra{x_{S \cup\{i\}}}-f_S\bra{x_S} \text{,}
+%     \label{eq:SHAP_value}
+% \end{equation}
+% 其中, $F$ 表示全部特征的集合, 求和符号表示对所有不包含第 $i$ 个特征的子集 $S$ (即 $S \subseteq F \backslash {i}$)进行遍历, 符号 $|\cdot|$ 表示集合中的元素数量。
+% 符号 $!$ 表示非负整数的阶乘。
+% $\delta_S(i)$ 表示特征 $q_i$ 的边际贡献, 如公式~\eqref{eq:SHAP_value} 所定义, 其中 $x_S$ 表示特征子集 $S$ 中各输入特征的取值。
+% 在计算 $\delta_S$ 时, 模型 $f_{S \cup {i}}$ 是在包含特征 $q_i$ 的条件下训练的, 而模型 $f_S$ 则是在不包含该特征的条件下训练的。
+% $\delta_S$ 前的阶乘项为每个特征赋予一个概率权重, 用以表示该边际贡献在所有排列中的重要性。
+
+
+
+% SHAP 交互值 $\phi_{i,j}$ 表示两个特征 $q_i$ 与 $q_j$ 之间的交互作用, 其计算方式如下所示~\citep{FUJIMOTO200672}
+% \begin{equation}
+%     \begin{aligned}
+%         \phi_{i,j}        & =\sum_{S \subseteq F \backslash\{i,j\}} \frac{|S| !(|F|-|S|-2) !}{2\bra{|F|-1} !}\delta_S\bra{i,j},\quad i\neq j, \\
+%         \delta_S\bra{i,j} & =
+%         f_{S \cup\{i,j\}}\bra{x_{S \cup\{i,j\}}}
+%         -f_{S \cup\{i\}}\bra{x_{S \cup\{i\}}}
+%         -f_{S \cup\{j\}}\bra{x_{S \cup\{j\}}}
+%         +f_S\bra{x_S},
+%     \end{aligned}
+% \end{equation}
+% 其中, $\delta_S(i,j)$ 表示特征对 ${q_i,q_j}$ 在特征子集 $S$ 上的联合边际贡献。
+% 特征 $q_i$ 的纯粹效应定义为:
+% \begin{equation}
+%     \phi_{i,i}=\phi_i-\sum_{i\neq j}\phi_{i,j} \text{,}
+% \end{equation}
+% 即从 SHAP 值 $\phi_i$ 中减去该特征与所有其他特征之间的交互贡献之和。
+
+
+% 集合 Kalman 方法的训练算法通过 DAFI 代码实现~\citep{strofer2021dafi}。
+% 压气机转子流动的 CFD 模拟使用开源求解器 MULTALL~\citep{Denton2017} 进行。
+% MULTALL 是一个多级、三维、定常粘性流动求解器, 基于时间推进的有限体积方法, 并结合多重网格方法以加快计算效率。
+% 后验分析通过开源的 SHAP 库实现~\citep{SHAP}。
+
+\subsection{Shapley(SHAP)可解释性分析方法}
+\label{sec:shap-method}
+
+针对深度神经网络（DNN）等高度非线性的“黑箱”模型，传统的内在解释方法~\citep{molnar2020interpretable}往往难以直接揭示模型内部的决策逻辑。为了建立网络输入特征与输出响应之间的定量因果关联，本研究采用事后分析（Post-hoc Analysis）框架下的 Shapley 附加解释（SHAP）方法~\citep{Lundberg2017}。该方法建立在合作博弈论的严谨基础之上：将模型的每一个输入特征视为博弈的参与者，将模型的预测值视为博弈产生的总收益，通过计算各个特征对预测结果的平均边际贡献（即 Shapley 值），实现对预测行为的公平分配与归因。
+
+在本研究构建的预测模型中，网络输出量 $\beta$ 可线性分解为各输入特征贡献量之和。其加性解释模型的数学表达式为：
+\begin{equation}
+    \beta = \phi_0 + \sum_{i=1}^{n} \phi_i
+\end{equation}
+式中：$n$ 为输入特征的总数（本研究中 $n=5$）；$\phi_i$ 表示第 $i$ 个输入特征 $q_i$ 的贡献量（即 SHAP 值）；$\phi_0$ 为模型基准输出，定义为模型在训练数据集上的输出期望值。
+
+SHAP 方法的核心优势在于其满足局部线性、对称性、有效性和一致性等理论公理。第 $i$ 个特征的 SHAP 值 $\phi_i$ 的计算公式如下：
+\begin{equation}
+    % \phi_i = \sum_{S \subseteq F \setminus \{i\}} \frac{|S|! (|F|-|S|-1)!}{|F|!} \delta_S(i), \quad
+    % \delta_S(i) = f_{S \cup \{i\}}(x_{S \cup \{i\}}) - f_S(x_S)
+    \phi_i=\sum_{S \subseteq F \backslash\{i\}} \frac{|S| !(|F|-|S|-1) !}{|F| !}\delta_S(i) \text{,} \quad
+    \delta_S(i)=f_{S \cup\{i\}} \bra{x_{S \cup\{i\}}}-f_S\bra{x_S} \text{,}
+    \label{eq:SHAP_value}
+\end{equation}
+其中，$F$ 表示全体输入特征的集合，$S$ 为不包含第 $i$ 个特征的任意特征子集。符号 $|\cdot|$ 表示集合中的元素数量，$!$ 表示非负整数的阶乘。$\delta_S(i)$ 代表特征 $q_i$ 的边际贡献，定义为在特征子集 $S$ 中加入 $q_i$ 后引起的模型输出增量。公式中的加权阶乘项确保了在所有可能的特征排列组合下，边际贡献分配的公平性与唯一性。
+
+为了进一步解构输入变量间的非线性耦合机制，本研究引入 SHAP 交互值（SHAP Interaction Values） $\phi_{i,j}$。该指标通过推广的 Shapley 值定义，衡量特征 $q_i$ 与 $q_j$ 之间的二阶交互效应对输出的影响~\citep{FUJIMOTO200672}：
+\begin{equation}
+    \begin{aligned}
+        % \phi_{i,j}    & = \sum_{S \subseteq F \setminus \{i,j\}} \frac{|S|! (|F|-|S|-2)!}{2(|F|-1)!} \delta_S(i,j), \quad i \neq j                    \\
+        % \delta_S(i,j) & = f_{S \cup \{i,j\}}(x_{S \cup \{i,j\}}) - f_{S \cup \{i\}}(x_{S \cup \{i\}}) - f_{S \cup \{j\}}(x_{S \cup \{j\}}) + f_S(x_S)
+        \phi_{i,j}        & =\sum_{S \subseteq F \backslash\{i,j\}} \frac{|S| !(|F|-|S|-2) !}{2\bra{|F|-1} !}\delta_S\bra{i,j},\quad i\neq j, \\
+        \delta_S\bra{i,j} & =
+        f_{S \cup\{i,j\}}\bra{x_{S \cup\{i,j\}}}
+        -f_{S \cup\{i\}}\bra{x_{S \cup\{i\}}}
+        -f_{S \cup\{j\}}\bra{x_{S \cup\{j\}}}
+        +f_S\bra{x_S},
+    \end{aligned}
+\end{equation}
+其中，$\delta_S(i,j)$ 表示特征对 $\{q_i, q_j\}$ 在给定子集 $S$ 上的联合边际贡献。基于此，特征 $q_i$ 的主效应（Main Effect）定义为：
+\begin{equation}
+    \phi_{i,i} = \phi_i - \sum_{i \neq j} \phi_{i,j}
+\end{equation}
+通过从总 SHAP 值 $\phi_i$ 中剥离该特征与其余所有特征的交互项，主效应 $\phi_{i,i}$ 能够更精准地表征单一变量对模型输出的独立影响规律。
+
+本研究的计算流程深度集成了物理模拟与数据驱动算法：集合 Kalman 训练算法通过开源同化框架 DAFI 实现~\citep{strofer2021dafi}；压气机转子流动的 CFD 模拟采用多级、三维、定常粘性流动求解器 MULTALL~\citep{Denton2017}，该求解器基于时间推进的有限体积法并辅以多重网格技术以保证计算效率；最终的模型归因分析与可视化则通过开源 SHAP 库~\citep{SHAP} 及其内置的解释器（如 KernelSHAP）完成。
+
+\section{NASA Rotor 37 流场预测结果与分析}
+\label{sec:3-NumericalResults}
+
+本研究采用集合 Kalman 方法（Ensemble Kalman Method）对 NASA Rotor 37 跨音速转子内流场的 RANS 预测结果进行同化改进。NASA Rotor 37 最初设计作为压力比为 20:1 的八级先进核心压缩机的进口级~\citep{Reid1978}，因其具有复杂的激波结构及强烈的二次流特征，被广泛应用于验证压缩机转子流动的数值模型及湍流模型~\citep{CUI201671, LI2022107620}。其气动设计参数如表~\ref{tab:rotor-37-design-para} 所示。数值模拟针对 NASA Rotor 37 在接近峰值效率的工况进行预测，此时质量流量为堵塞质量流量（$\dot{m}_{\text{choke}}=\SI{20.93}{kg/s}$）的 98\%，该工况接近设计工况。
+
+% 本研究采用集合Kalman方法(Ensemble Kalman Method)对NASA Rotor 37内流场的RANS预测进行改进。
+% 该跨音速转子设计为一个八级压力比为20:1的先进核心压缩机的进口级~\citep{Reid1978}, 并被广泛应用于压缩机转子流动的研究~\citep{CUI201671, LI2022107620}。
+% 其气动设计参数列于表~\ref{tab:rotor-37-design-para}。
+% 数值模拟针对NASA Rotor 37在接近峰值效率的工况下进行预测, 该工况的质量流量为堵塞质量流量($\dot{m}_{\text{choke}}=\SI{20.93}{kg/s}$)的 98\%。
+% 该工况接近设计工况。
+
+\begin{table}[!htb]
+    \centering
+    \bicaption{气动设计参数}{Aerodynamic design parameters}
+    \begin{tabular}{cc}
+        \toprule
+        叶片数       & 36                  \\
+        前缘叶尖直径 & $\SI{0.5074}{m}$    \\
+        前缘叶根直径 & $\SI{0.3576}{m}$    \\
+        转速         & $\SI{17188.7}{rpm}$ \\
+        叶尖线速度   & $\SI{454}{m/s}$     \\
+        叶尖间隙     & $\SI{0.356}{mm}$    \\
+        设计总压比   & 2.106               \\
+        设计总温比   & 1.270               \\
+        绝热效率     & 0.877               \\
+        质量流率     & $\SI{20.19}{kg/s}$  \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:rotor-37-design-para}
+\end{table}
+
+\subsection{算例设置}
+在完成网格敏感性分析的基础上，本研究采用约 51 万单元的 H 型结构化网格对计算域进行空间离散。网格在叶片弦向、流向及展向分别配置了 45、171 和 63 个节点。为准确捕捉壁面湍流效应，近壁面网格尺寸参考黏性尺度 $\delta_\nu=\SI{2.e-6}{m}$ 进行加密，展向与弦向近壁面第一层网格高度分别设置为 $\Delta r_1^+=55.0$ 和 $\Delta(r\theta)^+_1=42.5$。
+
+图~\ref{fig:rotor-37-mesh} 展示了单叶片扇区计算域及其子午面视角下的网格拓扑结构。图中绿色线条标示了 70\% 和 95\% 展向面位置，作为后续流场分析的关键观测截面。边界条件设置如下：入口位于轮毂面叶片前缘上游 \SI{4.19}{cm} 处，给定基于实验测量的总压、总温展向分布及轴向气流速度；出口边界采用径向平衡假设~\citep{johnsen1965aerodynamic}，并以轮毂静压作为给定压力值；壁面边界采用无滑移且绝热假设；由于仅对单叶片流道进行模拟，周向两侧施加旋转周期性边界条件。
+
+% 基于网格敏感性分析, 采用约51万单元的H型结构化网格对计算域进行离散。
+% 叶片弦向、流向和展向的单元数分别为45、171和63。
+% 近壁面网格尺寸以黏性尺度 $\delta_\nu=\SI{2.e-6}{m}$ 展向和弦向近壁面网格分别设置为 $\Delta r_1^+=55.0$, $\Delta\bra{r\theta}^+_1=42.5$。
+% 图~\ref{fig:rotor-37-mesh} 展示了计算域及其子午面视角下的网格结构, 绿色线条标示了70\%和95\%展向面位置, 供后续分析使用。
+% 入口位于轮毂面叶片前缘上游 $\SI{4.19}{cm}$ 处。
+% 入口边界条件沿展向设置了基于实验测量的总压和总温分布, 并施加轴向速度。
+% 出口边界条件采用径向平衡假设~\citep{johnsen1965aerodynamic}, 以轮毂处静压为准。
+% 壁面采用无滑移且绝热假设。
+% 由于计算域覆盖一个叶片扇区, 采用旋转周期性边界条件。
+
+
+\begin{figure}[htb!]
+    \centering
+    \subfigure[]{\includegraphics[width=0.5\linewidth]{Img/chap-2/domain-explain.png}}
+    \subfigure[]{\includegraphics[width=0.5\linewidth]{Img/chap-2/mesh-merid.pdf}}
+    \bicaption{计算域及网格几何示意。
+        面板(a)展示了单叶片扇区的计算域几何结构, 包括入口、出口边界及壁面。
+        白色区域表示静止部分, 绿色区域表示旋转部分。
+        面板(b)为子午面视角下的H型网格, 绿色线条标示了70\%和95\%展长位置。
+    }{Geometry of computational domain and mesh. Panel (a) shows the geometry of the computational domain of one blade sector with the inlet, outlet boundary, and walls. The white-colored is stationary, and the green-colored is rotating. Panel (b) shows the H-type mesh in meridional view with green lines highlighting the 70\% and 95\% span.}
+    \label{fig:rotor-37-mesh}
+\end{figure}
+
+本研究选取经典的实验测量数据~\citep{suder1996experimental}作为集合 Kalman 同化的观测向量，具体包括流场内的 Mach 数分布以及整体性能指标（质量流量、总压比、绝热效率）。Mach 数的观测截面选取在流动现象最为复杂的 70\% 和 95\% 展长处，对应的轴向位置涵盖了叶轮弦长的 20\%、40\%、65\%、90\% 和 104\%。数据点在吸力面与压力面之间沿周向均匀分布，间隔为叶轮节距的 0.025 倍。通过此类布点方式，能够详细刻画激波与涡流相互作用区、激波前后压升规律以及尾缘附近的流动特征。值得注意的是，为便于对比分析，104\% 弦长处的实验数据进行了周向平移处理，使叶轮尾迹居中显示。
+
+针对湍流修正系数 $\beta$ 的建模，本研究构建了一个四层全连接神经网络。输入层包含 5 个神经元，对应提取的流场物理特征；隐藏层共设置两层，每层包含 5 个神经元，并采用线性整流函数（ReLU）作为激活函数以增强模型的非线性表达能力；输出层由单个神经元构成，代表最终生成的修正系数 $\beta$。该架构的选择遵循了 Heaton 等~\citep{Heaton2008} 的准则，即两层隐藏层足以拟合具有任意复杂度的连续函数。附录~\ref{sec:sensitivity-nn} 中的敏感性分析进一步证实，该结构在计算效率与预测精度之间达到了最优平衡。
+
+同化过程中，基于集合 Kalman 框架生成了 50 个样本进行训练。神经网络权重的先验标准差设为 0.6，观测数据的标准差设为 0.1。相关参数的设定充分权衡了收敛速度与系统稳定性：较大的标准差虽能增加样本多样性，但易诱发 CFD 计算发散；较小的标准差则可能导致滤波器过早收敛或陷入局部最优~\citep{zhang2023combining}。
+
+% 实验测量数据~\citep{suder1996experimental}作为观测数据使用, 包含Mach数、质量流量、整体总压比以及整体绝热效率。
+% Mach数的观测位置位于$70\%$展长和$95\%$展长处, 对应于叶轮弦长的固定轴向位置$20\%, 40\%, 65\%, 90\%$和$104\%$。
+% 实验~\citep{suder1996experimental}仅提供这两个展长位置的Mach数测量数据。
+% 我们使用所有可用的测量数据, 以确保所学习模型在这两个展长位置上的预测能力。
+% 数据点在吸力面到压力面均匀分布, 间隔固定为叶轮节距的0.025倍。
+% 这些位置由Suder~\citep{suder1996experimental}选取, 旨在详细描述冲击/涡流相互作用区域、叶片吸力面冲击波前后流场以及叶片尾缘附近的流动特征。
+% 值得注意的是, 104\%弦长处的实验数据经过平移处理, 使叶轮尾迹在图中居中显示。
+% Mach数的实验数据通过激光测速仪系统获取, 整体性能数据通过气动探针测量获得~\citep{suder1996experimental}。
+% 实验数据的完整性和可重复性已在Suder的报告中得到验证~\citep{suder1996experimental}。
+
+% 神经网络由一个输入层、两个隐藏层和一个输出层组成。
+% 输入层包含5个神经元, 每个神经元对应一个输入特征。
+% 每个隐藏层包含5个神经元, 激活函数采用修正线性单元(ReLU) 。
+% 输出层包含1个神经元, 表示修正系数 $\beta$。
+% 神经网络的超参数设置遵循文献~\citep{Heaton2008}中提出的准则: 两个隐藏层能够表达任意形状的函数, 且隐藏层神经元数量应介于输入层和输出层的大小之间。
+% 我们还在附录~\ref{sec:sensitivity-nn} 中进行了神经网络结构的敏感性分析, 结果表明所选网络结构在Mach数预测上带来了最佳的提升效果。
+% 基于集合Kalman滤波方法, 我们抽取了50个样本用于训练神经网络。
+% 神经网络权重的标准差设为0.6, 观测值的标准差设为0.1。
+% 样本数量和标准差的设定基于敏感性分析, 旨在实现训练精度和效率之间的平衡。
+% 标准差过大可能导致CFD仿真发散, 而过小则会导致收敛速度变慢~\citep{zhang2023combining}。
+
+
+
+\subsection{总体性能训练结果}
+为了定量评价同化前后的流场预测精度，首先给出流道内沿流向截面的质量平均总压与总温定义：
+\begin{equation}
+    \frac{\overline{p}_i}{p_\text{ref}}=\sbra{
+        \frac{
+            \displaystyle\inte{A_i}{}{\bra{\frac{p_\text{stg}}{p_\text{ref}}}^{\frac{\gamma-1}{\gamma}}\rho \bm{u}\cdot}{\bm{s}}
+        }
+        {
+            \displaystyle\inte{A_i}{}{\rho \bm{u}\cdot}{\bm{s}}
+        }
+    }^{\frac{\gamma}{\gamma-1}},\quad
+    \overline{T}_i=\frac{
+        \displaystyle\inte{A_i}{}{T_\text{stg}\rho \bm{u}\cdot}{\bm{s}}
+    }
+    {
+        \displaystyle\inte{A_i}{}{\rho \bm{u}\cdot}{\bm{s}}
+    },
+\end{equation}
+其中，$p_\text{stg}$ 为总压，$p_{\text{ref}}$ 为标准参考压力（取 $\SI{101325}{Pa}$），$T_\text{stg}$ 为总温，$\rho\bm{u}$ 为动量通量，$A_i$ 为积分截面面积。基于此，总体总压比 $\pi$ 与绝热效率 $\eta$ 可分别表述为：
+\begin{equation}
+    \pi=\frac{\overline{p}_2}{\overline{p}_1},\quad
+    \eta=\frac{
+        \bra{\frac{\overline{p}_2}{\overline{p}_1}}^{\frac{\gamma-1}{\gamma}}-1
+    }
+    {
+        \frac{\overline{T}_2}{\overline{T}_1}-1
+    },
+\end{equation}
+式中，下标 1 和 2 分别代表压气机转子的进口与出口截面。
+
+CFD 数值模拟结果显示，基准模型（Baseline）与训练模型（Learned）均能捕捉总压比及绝热效率的主要特征，且预测量值与实验数据保持了较高的一致性。表~\ref{tab:over-all performance} 详细对比了 NASA Rotor 37 在不同模型下的整体气动性能。结果表明，训练模型（所有样本的均值）在质量流量与总压比的预测精度上较基准模型有所提升，其预测值更趋近于实验观测。
+
+尽管训练模型在压比预测上表现优异，但其绝热效率的预测精度略有下降。这一现象反映了多源异构数据同化过程中的权重平衡挑战：本研究中 Mach 数观测点共计 330 个，而表征整体性能的流量、压比及效率观测点各仅 1 个。这种显著的数据量级差异导致损失函数在优化过程中向流场局部特征（速度场）倾斜。为进一步兼顾整体性能预测，未来研究需引入更精细的数据平衡策略或调整观测误差协方差矩阵。然而，本研究的首要目标在于探讨基于集成学习的可解释湍流建模框架，数据权重优化虽具有工程实际意义，但在机制探讨阶段超出了本文当前的讨论范畴。
+
+
+% 我们的CFD模拟结果表明, 基准模型和训练模型均能较好地预测总压比和绝热效率, 且预测结果接近实验数据。
+% 与基准模型相比, 训练模型与实验数据的吻合度更高, 体现了本研究所采用的基于集成方法的湍流建模的有效性。
+% 表~\ref{tab:over-all performance} 展示了NASA Rotor 37案例中总压比和绝热效率的整体性能比较, 涵盖基准模型、训练模型及实验数据。
+% 训练模型结果为所有样本的均值。
+% 训练模型在流量和压比的预测上较基准模型略有提升, 但在绝热效率预测上表现略有下降。
+% 整体性能提升有限, 可能是由于数据不平衡所致——速度观测点有330个, 而流量、压比和绝热效率各仅有一个观测点。
+% 为进一步提升整体性能预测, 需降低速度观测数据的权重。
+% 但需指出的是, 本研究重点在于探讨基于集成方法的湍流建模在提升流场预测方面的可解释性。
+% 数据平衡策略在处理异构数据学习中极具意义, 但超出本研究范围, 未来将致力于该方向的研究, 以期同时提升整体性能与流场的预测效果。
+
+\begin{table}[!htb]
+    \centering
+    \bicaption{总体性能}{Overall performance}
+    \begin{tabular}{lccc}
+        \toprule
+             & $\dot{m}/\dot{m}_\text{choke}$ & $\pi$ & $\eta$ \\
+        \midrule
+        实验 & 0.982                          & 2.075 & 0.879  \\
+        基线 & 0.996                          & 2.130 & 0.874  \\
+        训练 & 0.985                          & 2.115 & 0.865  \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:over-all performance}
+\end{table}
+
+% 图~\ref{fig:r37-enkf-radial} 展示了 NASA Rotor 37 的总压比、总温比和绝热效率的径向分布。
+% 与实验数据相比, 训练模型在总压比和Mach数方面的预测优于基准模型。
+% 此外, 在 40\% 跨距以下, 预测的总压比高于实验值, 这一现象也在其他 RANS 或 LES 模拟中被观察到~\citep{Chima1998,hah2009large,Joo2014}。
+% 误差汇总如表~\ref{tab:error} 所示, 从定量角度展示了训练模型在整体性能预测方面的可比拟能力。
+
+图~\ref{fig:r37-enkf-radial} 展示了 NASA Rotor 37 总压比、总温比及绝热效率沿展向的分布规律。相比于基准模型，训练模型在总压比及 Mach 数的径向分布上展现出更高的预测保真度。值得注意的是，在 40\% 跨距以下的轮毂区域，所有模型预测的总压比均略高于实验值，这一系统性偏差在已有的 RANS 与 LES 研究中亦有体现~\citep{Chima1998,hah2009large,Joo2014}。
+
+表~\ref{tab:error} 汇总了关键性能参数的相对误差。定量分析表明，训练模型成功将 Mach 数的预测误差从 8.34\% 降低至 7.28\%，同时在保持总体性能预测能力的前提下，有效改善了流场细节的捕捉精度。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/radial-performance-r37-enkf.pdf}
+    \bicaption{总压比、总温比以及绝热效率的径向分布对比如下图所示, 分别展示了实验数据(方形标记) 、基准模型(蓝色虚线)与训练模型的预测结果。
+        其中, 训练模型的结果包括所有样本的覆盖范围(红色带状区域)以及样本均值(红色实线) 。
+    }{Radial distribution of the total pressure ratio, total temperature ratio, and adiabatic efficiency with comparison among experiments (square), the baseline model (blue dashed line), and the learned model. The results with the learned model show all samples (red band) and sample mean (red line).}
+    \label{fig:r37-enkf-radial}
+\end{figure}
+
+\begin{table}[!htb]
+    \centering
+    \begin{tabular}{lcc}
+        \toprule
+                 & 基线   & 训练   \\
+        \midrule
+        总压比   & 2.73\% & 2.05\% \\
+        总温比   & 0.91\% & 0.97\% \\
+        绝热效率 & 1.62\% & 1.98\% \\
+        Mach数   & 8.34\% & 7.28\% \\
+        \bottomrule
+    \end{tabular}
+    \bicaption{基准模型与训练模型在径向总压比、径向总温比、径向绝热效率以及Mach数预测方面的误差汇总如下表所示。
+        该汇总结果展示了两种模型在关键性能参数预测精度上的差异, 用于评估训练模型在各物理量上的改进效果。
+    }{Summary of prediction error in radial total pressure ratio, radial total temperature ratio, radial adiabatic efficiency, and Mach number with the baseline and the learned models}
+    \label{tab:error}
+\end{table}
+
+\subsection{Mach数分布训练结果}
+
+% 图~\ref{fig:Mach-compare} 对比了在 95\% 跨距位置处, 基准模型、训练模型与实验测量的Mach数等值线图。
+% 基准模型与训练模型均能捕捉到叶片尖端附近的涡流结构。
+% 具体而言, 叶尖间隙流从压力面越过转子叶尖流向吸力面, 并在叶片前部弦长区域卷曲形成叶尖涡~\citep{Chima1998}。
+% 该叶尖涡在下游逐渐减弱, 并在叶片前缘与法向激波相互作用, 导致激波形状发生畸变~\citep{Yamada2004}。
+% 在激波区域之后发生涡崩溃, 弥散的涡结构向叶片压力面移动, 最终并入下游尾迹流~\citep{Yamada2004}。
+% 从图~\ref{fig:Mach-compare}(a)(b)可以看出, 训练模型在靠近叶片压力面一侧的通道中预测出更明显的低Mach数区域。
+% 该低动量流动表明激波与叶尖泄漏涡相互作用引发的堵塞效应~\citep{suder1996experimental}。
+% 图~\ref{fig:Mach-compare}(d)进一步显示了基准模型与训练模型在Mach数预测上的差异。
+% 尤其在弓形激波区域, 两者之间存在明显差异, 这可能是由于来流角度的变化所致。
+% 具体来说, 流动角 $\alpha=\arctan\left({|\bm{\Omega}\times\bm{r}|}/{u_x}\right)$ 表示相对速度与 $x$ 轴方向之间的夹角, 其中 $u_x$ 是相对速度在 $x$ 方向上的分量。
+% 由于训练模型预测的质量流量与基准模型略有不同(见表~\ref{tab:over-all performance}) , 从而导致 $u_x$ 的变化, 进而引起流动角的差异~\citep{ZHANG2022107693}。
+
+图~\ref{fig:Mach-compare} 给出了在 95\% 展向跨距处，基准模型、训练模型与实验测量的 Mach 数分布对比。计算结果表明，两种模型均能有效捕捉转子叶尖区域的典型涡流结构。具体而言，叶尖间隙流在压力差驱动下越过叶尖进入吸力面侧，并在叶道前部卷起形成叶尖泄漏涡（Tip Leakage Vortex, TLV）~\citep{Chima1998}。该泄漏涡在向下游演化过程中，与前缘弓形激波及通道激波发生强烈的非线性相互作用，导致激波波面发生明显畸变~\citep{Yamada2004}。随后的激波诱导涡崩溃过程使弥散的涡结构向压力面偏移，并最终掺混至下游尾迹流中~\citep{Yamada2004}。
+
+
+
+从图~\ref{fig:Mach-compare}(a) 与 (b) 的对比中可见，训练模型在靠近叶片压力面的通道内预测出更为显著的低 Mach 数区域。这一低动量流动区域是激波与叶尖泄漏涡相互作用引发“流动堵塞”效应（Blockage Effect）的重要表征~\citep{suder1996experimental}。图~\ref{fig:Mach-compare}(d) 的差值分布进一步揭示了两者的差异，尤其在弓形激波区域，训练模型对激波位置与强度的修正较为明显。这种差异主要源于来流角（Flow Angle）的改变：
+\begin{equation}
+    \alpha = \arctan\left( \frac{|\bm{\Omega} \times \bm{r}|}{u_x} \right)
+\end{equation}
+由于训练模型修正了质量流量预测（见表~\ref{tab:over-all performance}），引起轴向速度 $u_x$ 的变化，进而通过改变相对来流角影响了激波的几何拓扑~\citep{ZHANG2022107693}。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/Mach-compare-v2.png}
+    \bicaption{95\% 跨距处的Mach数等值线图。
+        图(a)与图(b)分别展示了基准 SA 模型与训练模型预测的Mach数分布; 图(c)为实验测量的Mach数分布, 黑色虚线表示泄漏涡的路径~\citep{suder1996experimental}; 图(d)展示了基准模型与训练模型之间的Mach数差值, $\Delta(Ma)=Ma_\text{(learned)}-Ma_\text{(baseline)}$。
+        图(a)、(b)和(d)中的绿色虚线表示流向上恒定位置处的 40\% 弦长位置。
+    }{Mach number contours at 95\% span. Panels (a) and (b) show the Mach number predicted with the baseline SA model and the learned model, respectively. Panel (c) shows the Mach number measured by experiments{, and the black dashed line indicates the trajectory of tip leakage vortex~\citep{suder1996experimental}}. Panel (d) shows the Mach number difference between the baseline model and the learned model, $\Delta(Ma)=Ma_\text{(learned)}-Ma_\text{(baseline)}$. The green dash line with the constant streamwise location in (a)(b)(d) indicates the 40\% chord position.}
+    \label{fig:Mach-compare}
+\end{figure}
+
+% 图~\ref{fig:Mach-compare-v3}(a)(b)展示了 40\% 弦长位置处的Mach数等值线图。
+% 可以看出, 在基准模型和训练模型中, 靠近机匣壁处均存在低速区域。
+% 如图~\ref{fig:Mach-compare-v3}(c)所示, 训练模型相比基准模型在靠近机匣的位置预测了更低的Mach数, 该低速区是由叶尖涡卷入压力面一侧形成的。
+% 此外, 训练模型还在从轮毂到机匣的整个跨距范围内降低了激波附近的Mach数, 这表明来流角在整个跨距方向上发生了变化。
+
+图~\ref{fig:Mach-compare-v3} 展示了 40\% 弦长轴向截面内的 Mach 数等值线。基准模型与训练模型均捕捉到了机匣壁面附近的低速区，但图~\ref{fig:Mach-compare-v3}(c) 显示训练模型预测的低速区范围更大、强度更高。这说明训练模型增强了对叶尖涡卷吸机匣边界层、并向压力面迁移过程的描述。此外，训练模型在全展向范围内对激波后 Mach 数的调低，再次印证了数据同化方法对全局来流条件的有效校正。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/Mach-compare-v3.png}
+    \bicaption{40\% 弦长处的Mach数等值线图。
+        图(a)与图(b)分别展示了基准模型与训练模型预测的Mach数分布; 图(c)展示了两者之间的Mach数差值, $\Delta(Ma)=Ma_\text{(learned)}-Ma_\text{(baseline)}$。
+        图(a)、(b)和(c)中的绿色虚线表示恒定跨距位置处的 95\% 跨距位置。
+    }{Mach number contours at 40\% chord. Panels (a) and (b) show the Mach number predicted by the baseline model and the learned model, respectively. Panel (c) shows the Mach number difference between the baseline model and the learned model, $\Delta(Ma)=Ma_\text{(learned)}-Ma_\text{(baseline)}$.
+        The green dash line with constant spanwise locations in (a)(b)(c) indicates the 95\% span position.}
+    \label{fig:Mach-compare-v3}
+\end{figure}
+
+
+% 为了更好地分析训练模型对流动的预测效果, 绘制了不同测站处的速度分布图。
+% 图~\ref{fig:r37-enkf-mach} 展示了在不同弦长位置上, 从吸力面到压力面的Mach数速度剖面图。
+% 横坐标经过归一化处理, 采用的是对应跨距位置处的圆周弧长。
+
+图~\ref{fig:r37-enkf-mach} 给出了不同弦长位置处沿周向（从吸力面到压力面）的 Mach 数剖面分布。在 70\% 跨距位置，基准模型与训练模型的预测轨迹基本重合。在 20\% 弦长处，Mach 数分布表明截面位于激波撞击吸力面点（Shock Impingement Point）的上游；而在 65\% 弦长处，剖面特征反映出流动已过激波。随流向演化，吸力面侧边界层因逆压梯度作用显著增厚。在 104\% 弦长（尾迹区），速度剖面清晰地展示了转子尾迹的宽度与亏损深度。
+
+在流道环境更为复杂的 95\% 跨距截面，训练模型的优越性得到了充分体现：
+\begin{itemize}
+    \item \textbf{激波/涡相互作用区（40\% 弦长）}：训练模型显著改善了激波后的 Mach 数预测，修正了基准模型对波后速度的高估。
+    \item \textbf{堵塞与分离区（65\% 弦长）}：在叶道中部观察到两个明显的低速中心（Mach 数差值约 0.25），训练模型对该区域低动量流动的捕捉精度显著优于基准模型。
+    \item \textbf{尾迹区（104\% 弦长）}：由于吸力面侧存在强烈的激波诱导边界层分离，尾迹呈现明显的不对称特征。基准模型因低估了湍流扩散与混合效应，导致预测的尾迹亏损过于尖锐（Over-steep）；而训练模型通过修正湍流粘性（即 $\beta$ 系数），使得尾迹分布更符合实验观测。
+\end{itemize}
+
+% 在 70\% 跨距位置, 基准模型与训练模型在不同弦长处对Mach数的预测结果基本一致。
+% 在 70\% 跨距、20\% 弦长的位置, Mach数分布表明激波撞击叶片吸力面的位置位于该点下游。
+% 从 20\% 弦长到 40\% 弦长之间, 在通道激波与压力面之间存在Mach数升高的现象, 表明流动在压力面一侧接近 40\% 弦长位置时发生加速。
+% 在 65\% 弦长处的Mach数表明该位置位于激波撞击吸力面之后。
+% 到了 90\% 弦长, 除叶片表面附近外, Mach数在整个节距方向上几乎保持不变。
+% 此外, 从 65\% 弦长到 90\% 弦长, 吸力面一侧的边界层明显变厚。
+% 在 104\% 弦长(位于叶片尾缘下游)处的Mach数分布揭示了转子尾迹的宽度与深度。
+% 此处的尾迹宽度可以近似认为是 90\% 弦长处叶片厚度与压力面和吸力面两侧边界层厚度之和。
+
+% 在 95\% 跨距、40\% 弦长的位置, 观测点位于激波–涡相互作用之后、激波撞击叶片吸力面之前。
+% 从结果可以看出, 与基准模型相比, 训练模型在激波之后的Mach数预测上有明显改进。
+% 在 95\% 跨距、65\% 弦长的位置, 观测点位于激波撞击吸力面之后。
+% 可以观察到在叶片中间节距附近Mach数有明显下降, 形成两个Mach数相差约为 0.25 的区域。
+% 这一现象在图~\ref{fig:Mach-compare} 的等值线图中也有体现。
+% 相比于基准模型, 训练模型在该低速区域的速度预测精度有显著提升。
+% 在 95\% 跨距、90\% 弦长的位置, 由于激波引发的流动分离, 吸力面侧的边界层比压力面侧更厚。
+% 吸力面侧的高速流依然可以与压力面侧的低速流区分开来, 但由于流动下游传播过程中存在扩散效应, Mach数差异不如在 65\% 弦长处那样显著。
+% 104\% 弦长的位置处于尾迹区, 在此可以观察到明显的速度损失。
+% 由于吸力面侧的边界层分离, 尾迹在该侧更宽, 导致速度分布呈现不对称特征。
+% 基准模型低估了尾迹混合效应, 预测结果呈现出较为陡峭的速度下降; 而训练模型在吸力面侧附近的速度分布预测方面表现更为准确。
+
+综上所述，基准模型普遍高估 Mach 数的主要原因在于其未能充分刻画激波与泄漏涡之间的非线性相互作用强度。通过引入基于神经网络的可解释建模方案，训练模型能够有效识别并修正此类物理缺失，从而大幅提升了对跨音速压气机复杂流场的预测能力。各截面的定量误差汇总详见表~\ref{tab:error}。
+
+% 需要注意的是, 激波前后Mach数的差异可用于指示叶尖涡对流动的影响~\citep{suder1996experimental}。
+% 因此, 基准模型在观测位置普遍高估了Mach数, 其原因在于低估了激波与泄漏涡之间的相互作用强度。
+% 相比之下, 神经网络模型能够较好地捕捉该区域内的相互作用效应, 从而提升预测精度。
+% 基准模型与训练模型的Mach数相对误差列于表~\ref{tab:error} 中。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/Mach-cross-pitch-r37-enkf.pdf}
+    \bicaption{在接近峰值效率的工况下, 不同流向位置(分别为 20\%、40\%、65\%、90\% 和 104\% 弦长)处的Mach数分布图。
+        其中, 上排图对应 70\% 跨距, 下排图对应 95\% 跨距。
+        对比结果包括实验数据(虚线) 、基准 SA 模型(蓝色虚线)和训练模型(红色实线) 。
+        红色阴影区域表示训练模型预测样本的覆盖范围。
+    }{Plots of Mach number at 70\% span (upper panels) and 95\% span (bottom panels) for fixed streamwise locations of 20\%, 40\%, 65\%, 90\% and 104\% chord at the near peak efficiency operating condition.
+        The comparison is conducted among the experiments (dotted lines), the baseline SA model (blue dashed lines), and the learned model (red lines). The red band indicates the coverage of the samples from the learned model.}
+    \label{fig:r37-enkf-mach}
+\end{figure}
+
+
+\subsection{泛化性测试}
+
+为评估所训练的神经网络模型对非训练工况的泛化能力（Generalization Ability），本研究在设计转速下，通过调节出口轮毂静压以改变背压条件，获得了 NASA Rotor 37 从近堵塞点到近喘振点的完整特性曲线。
+
+
+
+图~\ref{fig:validation-overall-r37} 展示了预测的总体性能曲线，并与基准模型及实验数据进行了对比。结果表明，在设计转速下的全流量范围内，基准模型均显著高估了总压比；而经过同化训练的神经网络模型在不同流量工况下均表现出更高的预测精度，其压力特性曲线与实验观测值吻合度更好。这证明了神经网络模型不仅能够拟合同化点的流场特征，还能有效捕捉压气机在偏离设计点（Off-design conditions）时的流场演化机制，展现出良好的外推泛化性能。
+
+在绝热效率预测方面，神经网络模型与基准模型的结果趋于一致，未表现出明显的改进。这一现象的物理根源在于：本研究采用的观测向量主要由 Mach 数（动力学变量）构成，缺乏总温或热熵等热力学参量的有效约束。由于绝热效率对温度梯度的预测极为敏感，在缺乏热力学观测数据的前提下，仅依靠速度场修正难以实现对能量损失机制的全面重构。这一结果也提示我们，在未来的多物理场同化研究中，引入异构热力学观测数据对于同步提升压力与效率的预测精度至关重要。
+
+综上所述，尽管存在热力学预测的局限性，该神经网络模型在气动载荷预测方面展现了稳健的泛化能力，验证了其作为跨音速转子流场修正工具的有效性。
+
+% 我们验证了所训练的神经网络模型在不同工况下预测整体性能的能力。
+% 通过改变轮毂处的静压比, 获得了在设计转速下 Rotor 37 不同流量工况的运行条件。
+% 预测结果如图~\ref{fig:validation-overall-r37} 所示, 并与基准模型进行了对比。
+% 可以观察到, 基准模型在设计转速下高估了总压比, 而训练得到的神经网络模型在预测结果上与实验数据更为接近。
+% 在预测效率方面, 神经网络模型与基准模型之间的差异可以忽略不计。
+% 所选的观测数据主要为Mach数, 缺少温度等热力学变量, 因此在等熵效率的预测上并未表现出明显的提升。
+% 以上结果表明, 该神经网络模型对未见过的运行工况具有一定的泛化能力。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/overall-performance-map.pdf}
+    \bicaption{Rotor 37 整体性能的验证:  (左)总压比,  (右)绝热效率。
+    }{Validation on the overall performance of Rotor 37: (left) the total pressure, (right) the adiabatic efficiency.}
+    \label{fig:validation-overall-r37}
+\end{figure}
+
+\section{训练模型的可解释性分析}
+\label{sec:explain}
+
+% 本节通过探究学习神经网络模型的行为, 阐释基于集合Kalman的湍流建模如何提升预测精度。
+% 本研究的可解释性涉及学习模型的修正过程与输入特征的贡献分析。
+% 具体而言, 应基于学习模型的修正机制解释Mach数预测精度的提升。
+% 同时需剖析输入特征对学习模型修正的贡献作用。
+% 下文将分别探讨可解释性的这两个方面。
+
+本节通过探究神经网络模型的决策行为，阐释基于集合 Kalman 方法的湍流建模如何提升流场预测精度。本研究的可解释性分析涵盖两个维度：首先，通过对比涡粘性系数的演化，阐明学习模型对物理流场的修正机制；其次，通过分析输入特征的贡献度（SHAP 值），解构神经网络捕捉复杂流场特征的逻辑基础。
+
+\subsection{模型输出修正系数对流场的可解释性分析}
+% 通过分析学习到的涡黏, 我们阐明了学习模型在Mach数预测方面的改进。
+% 图~\ref{fig:mu-t} 比较了基准模型与学习模型预测的涡黏。
+% 从图~\ref{fig:mu-t}(a)和(b)可见, 基准模型与学习模型在激波下游、机匣端壁附近及95\%展向的尾流区域均呈现显著增大的湍流粘度值。
+% 通道激波与尖端泄漏流的相互作用导致尖端涡流崩溃和非定常效应~\citep{Chima1998,dunham1998cfd,yamada2003numerical}, 进而对主流产生阻塞效应。
+% 与基准模型相比, 如图~\ref{fig:mu-t}(c)(f)所示, 学习模型在罩壳压力面侧显著增加了湍流粘度, 而在吸力面侧则降低了湍流粘度。
+% 基准模型可能低估了涡黏度, 并进一步高估了机匣附近的Mach数, 如图~\ref{fig:r37-enkf-mach} 所示。
+% 相反, 学习模型在激波与尖端涡流相互作用区域之后增加了湍流粘度。
+% 通过这种方式, 学习模型增强了动量和能量传递。
+% 因此, 在机匣附近预测的速度幅值降低, 与实验数据吻合度更高。
+
+通过对比基准模型与学习模型预测的涡粘性系数分布，可以清晰地阐明模型改进的物理诱因。图~\ref{fig:mu-t} 展示了 95\% 展向及 40\% 轴向截面的无量纲涡粘度（$\mu_t/\mu$）分布。计算结果显示，两种模型均能捕捉到激波下游、机匣端壁及尾迹区域的高湍流粘度特征。然而，在跨音速转子叶尖区域，通道激波与叶尖泄漏涡（TLV）的强烈相互作用诱发了显著的涡崩溃与非定常脉动效应~\citep{Chima1998,dunham1998cfd,yamada2003numerical}，这些复杂的物理过程对主流产生了显著的堵塞作用。
+
+对比图~\ref{fig:mu-t}(c) 与 (f) 的差值云图可见，学习模型在机匣压力面侧显著调高了湍流粘度，而在吸力面侧则进行了适度调低。基准 SA 模型因其固有的线性涡粘假设，往往低估了激波/涡相互作用区的湍流耗散，导致机匣附近的 Mach 数预测值偏高（如图~\ref{fig:r37-enkf-mach} 所示）。相比之下，学习模型通过在激波后的相互作用区增强湍流粘度，强化了流场内部的动量与能量交换。这种修正机制有效缓解了低动量流体的积聚，使得机匣附近的速度梯度预测与实验数据更趋吻合。
+
+
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/vis-compare.png}
+    \bicaption{涡粘性系数云图。
+        (a)、(b)、(c) 子图分别展示了基准模型、学习模型以及两者之间差异在95\%展向位置的涡粘性系数分布。
+        (d)、(e)、(f) 子图分别展示了基准模型、学习模型以及两者之间差异在40\%弦长位置的涡粘性系数分布。
+        差异值计算公式为：$\Delta(\mu_t/\mu)=(\mu_t/\mu)_\text{learned}-(\mu_t/\mu)_\text{baseline}$。}{Contour plots of the eddy viscosity.
+        Panels (a,b,c) show the eddy viscosity at 95\% span of the baseline model, the learned model, and the difference between them, respectively.
+        Panels (d,e,f) show the eddy viscosity at 40\% chord of the baseline model, the learned model, and the difference between them, respectively.
+        The difference is calculated by $\Delta(\mu_t/\mu)=(\mu_t/\mu)_\text{learned}-(\mu_t/\mu)_\text{baseline}$.
+    }
+    \label{fig:mu-t}
+\end{figure}
+
+% 基于神经网络输出$\beta$, 进一步阐释了经验漩涡黏度。
+% 图~\ref{fig:beta} 展示了在95\%展向和40\%弦长处$\beta$的样本均值。
+% 红色区域标示$\beta>1$, 蓝色区域表示$\beta<1$。
+% 可观察到: 当湍流粘度$\beta>1$时, 其分布范围涵盖了激波后方至尾缘下游一定距离的区域、尾流区域, 以及叶栅和叶片附近区域, 表明这些区域的湍流生成增强。
+% 需注意的是, 在尾流区域模型修正项$\beta$呈现显著偏高值, 而湍流粘度相较基准值仅有微小波动。
+% 这可能是由于尾流中相对较小的生产量$\mathcal{P}$所致(如图~\ref{fig:product}(a)的等值线图所示) , 因此$\beta$的变化对湍流粘度影响甚微。
+% 此外, 在激波上游区域校正项$\beta$值减小, 表明生成效应减弱。
+% 更值得注意的是, 机匣附近的流场对$\beta$极为敏感——根据图~\ref{fig:mu-t} 和~\ref{fig:beta}, $\beta$的微小增量即可引发湍流粘度的显著变化。
+% 这种高敏感性可能是由于局部强应变率以及图~\ref{fig:product}(b)所示的$\tilde{\nu}$传输方程中更大的生产项$\mathcal{P}$造成的。
+% 如此高的敏感性可归因于局部强应变率, 以及如图~\ref{fig:product}(b)所示, 在$\tilde{\nu}$传输方程中进一步增大的生产项~$\mathcal{P}$。
+% 因此, 当乘以生产项时, $\beta$的微小变化会导致湍流粘度发生显著变化。
+% 此外, 如图~\ref{fig:mu-t} 所示, 神经网络模型在激波与尖端泄漏涡相互作用区域之后增加了模型修正项$\beta$, 相较基准模型显著增强了湍流粘度。
+% 基准模型在整流罩附近的预测失效, 可能源于主流与尖端泄漏涡之间复杂的相互作用, 这违背了传统SA模型中的平衡假设。
+% 相较之下, 学习模型通过增强强非平衡效应区域的湍流生成机制, 显著提升了预测精度。
+
+
+神经网络输出的修正系数 $\beta$ 为阐释经验涡粘性的调整逻辑提供了直接依据。图~\ref{fig:beta} 给出了 95\% 展向与 40\% 轴向位置的 $\beta$ 样本均值分布。观察发现，$\beta > 1$ 的高值区主要集中在激波后方、叶片尾迹以及近壁面区域，表明模型在这些位置识别到了更强的湍流生成需求。值得注意的是，在尾迹核心区，尽管 $\beta$ 值显著偏高，但涡粘性系数的绝对增量却相对微小。这主要是由于尾迹区的湍流生成项 $\mathcal{P}$ 基数较小（见图~\ref{fig:product}），导致 $\beta$ 的放大作用受限。
+
+与此形成鲜明对比的是机匣附近的流场对 $\beta$ 的极高敏感性。由图~\ref{fig:mu-t} 和图~\ref{fig:beta} 可知，$\beta$ 的微小增量即可引起涡粘性系数的剧烈波动。这种高敏感性源于该区域剧烈的局部应变率（Strain Rate）以及由此产生的巨大湍流生成项 $\mathcal{P}$。在 Spalart-Allmaras 输运方程中，当 $\beta$ 作为乘子作用于强生成项时，其微小波动会被显著放大，从而实现对流场堵塞效应的精准补偿。
+
+综上所述，基准模型在叶尖区域的预测失效，本质上是因为传统的 SA 模型基于准平衡态假设，难以准确刻画主流与泄漏涡之间复杂的非平衡相互作用。而本研究的学习模型通过在强非平衡区域动态增强湍流生成机制，弥补了物理模型的固有缺陷，从而显著提升了跨音速内流场的预测精度。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/beta-show.png}
+    \bicaption{神经网络输出量 $\beta$ 在95\%展向位置及40\%弦长位置的云图。}{Contour plots of the neural network output $\beta$ at 95\% span and 40\% chord.}
+    \label{fig:beta}
+\end{figure}
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/production-show.png}
+    \bicaption{学习模型预测的产生项 $\mathcal{P}$ 在95\%展向位置及40\%弦长位置的云图。}{Contour plots of the production term $\mathcal{P}$ predicted by the learned models at 95\% span and 40\% chord.}
+    \label{fig:product}
+\end{figure}
+
+% \subsection{模型输入特征的可解释性}
+% 本节通过解构神经网络内部特征的贡献权重，揭示其对湍流模型修正行为的内在逻辑。采用 SHAP 方法对修正系数 $\beta$ 与输入特征向量 $\bm{q}$ 的映射关系进行事后归因分析。如~\ref{sec:shap-method} 节所述，通过计算各特征的 Shapley 值 $\phi_i$，可定量评估输入变量 $q_i$ 对模型输出增量的贡献度。
+
+% 本节通过探究每个输入特征的个体贡献来解释神经网络。
+% 采用SHAP方法基于模型修正值$\beta$和网络输入$q$的样本均值进行事后可解释性分析。
+% 如~\ref{sec:shap-method} 所示, SHAP值$\phi_i$可确定输入特征$q_i$对神经网络输出值$\beta$的贡献。
+% 下文将探讨各输入特征对学习到的模型修正值的贡献。
+
+\subsection{模型输入特征的可解释性分析}
+
+本节旨在通过解构神经网络内部特征的贡献权重，揭示数据驱动模型对湍流修正行为的内在决策逻辑。如~\ref{sec:shap-method} 节所述，本研究采用 SHAP 方法，基于修正系数 $\beta$ 的样本均值与输入特征向量 $\bm{q}$ 进行事后归因分析。通过计算各输入特征 $q_i$ 的 Shapley 值 $\phi_i$，可以定量评估各物理特征对神经网络输出增量的贡献度，从而实现从“黑箱”关联向“白箱”因果的转化。
+
+下文将从全局重要性排序、特征相关性分析以及空间分布关联三个维度，深入探讨各输入特征对学习到的模型修正值的具体贡献及其背后的物理机制。
+
+图~\ref{fig:r37-shap} 展示了训练后神经网络的 SHAP 归因分析结果。在图~\ref{fig:r37-shap}(a) 中，各输入特征按平均绝对 SHAP 值进行降序排列。该指标衡量了特征对模型输出影响的整体权重，即其全局显著性（Global Significance）。
+
+从定量排序结果可见，$q_1$（生成/破坏比 $\mathcal{P}/\mathcal{D}$）对输出值的贡献占据主导地位。这有力地证明了在 NASA Rotor 37 跨音速流场中，湍流的非平衡效应（Non-equilibrium Effect）是引起基准模型预测偏差的核心物理诱因。紧随其后的关键特征是 $q_5$（螺旋度 $h$），其贡献值接近 0.2。这说明流动的强三维性及螺旋特性对压气机转子流场的准确建模具有不可忽视的影响。
+
+此外，$q_2$（应变/旋转比 $\|\bm{S}\| / \|\Omega\|$）与 $q_3$（压力梯度指标 $\delta$）表现出相近的显著性量级（约 0.09），其贡献量约为 $q_1$ 与 $q_5$ 的 30\%--50\%。尽管这两项特征并非主导因素，但它们在表征激波诱导的强剪切及不利压力梯度效应方面仍发挥了重要作用，相关结论在现有的改进 SA 模型研究中也得到了佐证~\citep{Liu20112377, Cui2021, LI2022107682}。相比之下，特征 $q_4$（工作变量 $\chi$）的整体显著性最低。
+
+综合 SHAP 全局显著性分析可以得出：生成-破坏比（非平衡性）与螺旋度（三维特征）是引导神经网络实现流场精准修正的两大核心物理维度。
+
+% 图~\ref{fig:r37-shap} 展示了训练后神经网络的SHAP值。
+% 在图~\ref{fig:r37-shap}(a)中, 输入特征按其平均绝对SHAP值降序排列。
+% 平均绝对SHAP值反映了输入特征对输出结果的整体重要性, 即其全局显著性。
+% 可见$\mathcal{P}/\mathcal{D}$ (即$q_1$)对输出贡献最大, 表明NASA Rotor 37案例中存在显著的非平衡效应。
+% 紧随其后的是畸度(即$q_5$) , 其值接近$0.2$, 这证明畸度对压缩机转子流动具有重要影响。
+% 紊流度的重要性亦通过多项数值模拟得到验证~\citep{Liu20112377, Cui2021, LI2022107682}, 其中引入紊流度以改进压缩机流动的SA模型。
+% 特征$q_2$ (即$\|\bm{S}\| / \|\Omega\|$)与$q_3$ (即$\delta$)具有相近的量级(约0.09) , 约为$q_1, q_5$均值绝对SHAP值的30\%--50\%。
+% 特征$q_4$ (即$\chi$)具有最低的整体显著性。
+% SHAP分析表明, 生成-破坏比与畸度是影响模型预测的两大关键因素。
+
+图~\ref{fig:r37-shap}(b) 给出了特征输入 $q_i$ 与其对应 SHAP 值 $\phi_i$ 相关性的蜂群图，揭示了各物理量对模型修正系数 $\beta$ 的边际影响趋势。
+
+
+
+从特征的正负贡献分布可以观察到以下规律：
+\begin{itemize}
+    \item \textbf{非平衡效应的负反馈}：SHAP 值 $\phi_1$ 与输入特征 $q_1$ 呈现显著的负相关性（即 $\phi_1 \propto -q_1$）。这意味着当局部流场的生成项与破坏项之比 $\mathcal{P}/\mathcal{D}$ 增大时，神经网络倾向于减小修正项 $\beta$。这种负反馈机制表明，在基准 SA 模型过度响应湍流生成的区域，神经网络通过调低 $\beta$ 实现对物理预测的削减与校正。
+    \item \textbf{三维畸度的正向增强}：SHAP 值 $\phi_5$ 与螺旋度 $q_5$ 呈正相关（即 $\phi_5 \propto q_5$）。这表明随着流场三维螺旋特征的增强，神经网络会自发调高输出值 $\beta$，以补偿传统模型在复杂旋涡结构下对动量交换预测的不足。
+    \item \textbf{强剪切与压力梯度的抑制作用}：$\phi_2$ 与 $\phi_3$ 分别随应变率比 $q_2$ 和不利压力梯度 $q_3$ 的增大而减小（即 $\phi_2 \propto -q_2, \phi_3 \propto -q_3$）。这反映了在强剪切及剧烈压升区域，神经网络主要通过负向贡献来抑制基准模型可能出现的数值震荡或过度增益。特别地，应变率对输出的负向贡献幅度远大于正向贡献，体现了模型对高应变区域预测失效的显著敏感性。
+    \item \textbf{工作变量的弱相关性}：SHAP 值 $\phi_4$ 虽然与 $q_4$（$\chi$）呈正相关趋势，但其数值波动范围极小，且大量样本点的贡献趋于零，证实了归一化湍流工作变量对本次模型修正的贡献相对有限。
+\end{itemize}
+
+通过蜂群图分析可见，神经网络不仅识别了特征的重要性，还通过建立精准的正负响应逻辑，实现了对跨音速转子复杂物理机制的定制化补偿。
+
+
+% 图~\ref{fig:r37-shap}(b)展示了特征输入$q_i$与对应SHAP值$\phi_i$之间相关性的蜂群图。
+% 可见SHAP值$\phi_1$与$q_1$成反比, 即$\phi_1 \propto -q_1$, 这意味着当生产项与破坏项之比增大时, 模型修正项$\beta$随之减小。
+% SHAP值$\phi_5$与$q_5$成正比, 即$\phi_5 \propto q_5$, 这表明当螺旋度值增大时, 网络输出$\beta$随之增加。
+% SHAP值$\phi_2$与$\phi_3$分别与$q_2$和$q_3$成反比, 即$\phi_2 \propto -q_2$和$\phi_3 \propto -q_3$。
+% 这表明当不利压力梯度和应变率增大时, 模型修正项$\beta$会减小。
+% 此外需注意, 应变率对模型输出的负向贡献远大于正向贡献。
+% SHAP值$\phi_4$与特征$q_4$成正比, 即$\phi_4 \propto q_4$。
+% 但$\phi_4$与$q_4$的相关性远低于其他特征, 多数特征值对输出几乎无贡献。
+
+\begin{figure}[!htb]
+    \centering
+    \subfigure[]{\includegraphics[width=6cm]{Img/chap-2/mean-shap.pdf}}
+    \subfigure[]{\includegraphics[width=8cm]{Img/chap-2/shap.png}}
+    \bicaption{SHAP分析。(a) 条形图展示了平均绝对SHAP值。(b) 蜂群图展示了SHAP值的详细信息。每个点代表一个CFD网格点, 其横坐标表示SHAP值 $\phi$, 颜色条表示输入特征的值。具有相同SHAP值的点在垂直方向上堆积, 展示了SHAP值的分布密度。}{SHAP analysis. (a) The bar chart shows the mean absolute SHAP value. (b) The bee swarm plot illustrates the details of the SHAP value. Each dot represents a CFD grid point, with horizontal coordinates indicating the SHAP value $\phi$ and the color bar indicating the value of inputs. Dots having the same SHAP value accumulate in the vertical direction, showing the distribution density of the SHAP value.}
+    \label{fig:r37-shap}
+\end{figure}
+
+图~\ref{fig:r37-SHAP-input-contour} 绘制了 95\% 展向截面内输入特征及其对应 SHAP 值的空间分布云图，旨在从空间维度解构物理场特征与网络修正行为的内在关联。
+
+
+
+\begin{itemize}
+    \item \textbf{非平衡效应特征 ($q_1$)}：生成/破坏比 $\mathcal{P}/\mathcal{D}$ 在激波前后呈现出截然不同的分布特性。具体而言，$q_1$ 在激波前缘数值较大，而激波后显著降低。基于 $\phi_1$ 与 $q_1$ 的负相关逻辑，SHAP 云图清晰地展示了模型在激波前抑制湍流生成，而在激波后的强非平衡区显著增加生成项权重的修正规律。
+    \item \textbf{应变/旋转特征 ($q_2$)}：该特征刻画了流场局部应变率与旋转率的相对强度。在激波区、膨胀波区及尾迹核心区，$q_2$ 均呈现高值，对应于强剪切与强变形流动。对应的 $\phi_2$ 云图表明，神经网络识别出基准 SA 模型在这些强应变区域存在过拟合或生成项高估的倾向，因此通过负向 SHAP 值进行抑制。
+    \item \textbf{不利压力梯度特征 ($q_3$)}：特征 $\delta$ 在激波后方区域具有显著的高值分布，这源于激波诱导的剧烈静压升。SHAP 值的空间分布进一步证实，在遭受高强度不利压力梯度作用的区域，神经网络会通过削减 $\beta$ 值来稳定湍流粘度的增长。
+    \item \textbf{工作变量特征 ($q_4$)}：归一化变量 $\chi = \tilde{\nu}/\nu$ 的空间拓扑与图~\ref{fig:mu-t} 中的涡粘性云图高度相似。其 SHAP 分布揭示了一种“正反馈”逻辑：在湍流充分发育的区域，较大的 $\chi$ 值会诱导正向的 SHAP 贡献，从而在局部进一步强化模型的修正力度。
+    \item \textbf{螺旋度特征 ($q_5$)}：特征 $h$ 描述了速度场与涡度场的空间一致性。在激波/涡相互作用区及尾迹区，螺旋度显著增强。对应的 $\phi_5$ 分布表明，神经网络在这些典型三维流动区域主动增加了生成项的权重，补偿了基准模型对三维流场损失预测的不足。
+\end{itemize}
+
+这种基于空间分布的归因分析表明，神经网络并非盲目拟合数据，而是能够精准捕捉流场中的关键物理特征（如激波位置与尾迹拓扑），并根据局部流动性质施加差异化的物理补偿。
+
+% 图~\ref{fig:r37-SHAP-input-contour} 绘制了输入特征值与95\%置信区间内SHAP值的空间分布, 以阐明输入特征与网络输出之间的空间关联。
+% 特征$q_1$ (即$\mathcal{P}/\mathcal{D}$)在冲击波前后呈现显著差异。
+% 具体而言, 特征$q_1$在激波前呈现较大数值, 激波后则转为较小数值。
+% 其对应的SHAP值与特征呈负相关: 可见激波前生产项减少, 激波后则增加。
+% 在激波区域, 输入特征值相对较大; 而在尾流区域则表现为较小特征值。
+% 因此特征$q_1$在激波区SHAP值较小, 尾流区则较大。
+% 特征$q_2$ (即$\|\bm{S}\|/\|\Omega\|$)刻画应变率与旋转率之比, 其在激波区、膨胀波区及尾流中心附近区域取值较大。
+% 这些区域对应着强应变率流动。
+% 对应的SHAP值表明: 基准SA模型的生产项在这些区域应降低, 而在应变率较低的区域则应增加。
+% 特征$q_3$ (即$\delta$)刻画了不利压力梯度效应, 其在激波后区域具有较大数值。
+% 这很可能是由于冲击波区域内压力的急剧上升所致。
+% SHAP值表明, 在具有高不利压力梯度的区域需要减少模型修正量。
+% 特征量 $\chi=\tilde{\nu}/\nu$ ($q_4$)是SA模型中的归一化工作变量, 与湍流粘度直接相关。
+% 因此其分布图与图~\ref{fig:mu-t} 中湍流粘度的等值线极为相似。
+% SHAP值还揭示了比例相关性: 当$\chi$值较大时, 模型修正项$\beta$会相应增大。
+% 特征$h$ (即$q_5$)描述了速度与涡度方向的一致性, 其值在激波区和尾流区更大。
+% 对应的SHAP值表明, 相较于基准模型, 这些区域应增加生产项的权重。
+
+
+\begin{figure}[!htb]
+    \centering
+    \subfigure[Input features]{\includegraphics[width=\linewidth]{Img/chap-2/feature-values-span-95.png}}
+    \subfigure[SHAP values]{\includegraphics[width=\linewidth]{Img/chap-2/shap-values-span-95.png}}
+    \bicaption{95\%展向位置处的(a)输入特征(已缩放)及(b)SHAP值云图。}{Contours of (a) input features (scaled) and (b) SHAP value at 95\% span.}
+    \label{fig:r37-SHAP-input-contour}
+\end{figure}
+
+为了更深入地解构特征间的非线性关联，SHAP 总值 $\phi_i$ 可进一步分解为主效应（纯效应） $\phi_{i,i}$ 与交互效应 $\phi_{i,j}$。其中，$\phi_{i,i}$ 表征特征 $q_i$ 对模型输出的独立贡献，而 $\phi_{i,j}$ 则刻画了特征对 $\{q_i, q_j\}$ 共同作用产生的额外增益。
+
+
+
+图~\ref{fig:r37-inter-matrix}(a) 给出了 SHAP 交互值的绝对均值 $\overline{|\phi_{i,j}|}$ 矩阵。该对称矩阵的对角线元素代表各特征的主效应贡献，非对角线元素则代表两两特征间的交互强度。结果表明，对于所有输入特征，其独立的主效应贡献均显著大于与其他特征的交互贡献。对角线元素的数值分布规律与图~\ref{fig:r37-shap} 中的总 SHAP 值排序高度一致，各贡献分量的绝对量级排序为：$\overline{|\phi_{1,1}|} > \overline{|\phi_{5,5}|} > \overline{|\phi_{3,3}|} > \overline{|\phi_{5,1}|} > \overline{|\phi_{2,2}|}$。
+
+图~\ref{fig:r37-inter-matrix}(b) 通过对角线元素对矩阵进行了归一化处理（即 $\overline{|\phi_{i,j}|}/\overline{|\phi_{i,i}|}$），旨在揭示不同特征间耦合作用的相对重要性。归一化矩阵清晰地展示了以下物理耦合特征：
+\begin{itemize}
+    \item \textbf{非平衡效应的核心耦合}：特征 $q_1$（$\mathcal{P}/\mathcal{D}$）作为全局最显著特征，与其他所有特征（尤其是 $q_3, q_4, q_5$）均存在明显的交互效应，这说明非平衡效应的修正程度高度依赖于局部的压力梯度与三维流动特征。
+    \item \textbf{螺旋度的辅助修正}：特征 $q_2$（应变/旋转比）在与特征 $q_5$（螺旋度）产生联合效应时，对输出的影响达到最大。这表明在处理叶尖泄漏涡等复杂的螺旋流动时，神经网络通过整合剪切应变与三维畸度信息，实现了比单一特征更精准的损失捕捉。
+\end{itemize}
+
+这种基于交互矩阵的分析不仅证实了神经网络内部存在复杂的非线性组合逻辑，也为未来简化湍流模型特征项提供了重要的理论参考。
+
+% SHAP值$\phi_i$可进一步分解为纯效应$\phi_{i,i}$与交互效应$\phi_{i,j}$。
+% 纯效应 $\phi_{i,i}$ 表示特征 $q_i$ 对输出值的影响减去其与其他特征的交互效应, 而 $\phi_{i,j}$ 表示输入特征 $q_i$ 和 $q_j$ 对输出值的综合影响。
+% 图~\ref{fig:r37-inter-matrix}(a)展示了SHAP交互值的绝对均值$\overline{\abs{\phi_{i,j}}}$。
+% 该矩阵具有对称性: 对角线元素表示特征$q_i$对输出的纯贡献, 非对角线元素表示特征$q_i$与$q_j$对输出的联合贡献。
+% 显然, 对于每个输入特征, 其纯效应贡献均大于与其他特征的联合影响贡献。
+% 对角元素 $\phi_{i,i}$ 的数值排序与 SHAP 值 $\phi_i$ 保持一致。
+% 特征对输出影响的整体排序如下: $\overline{\abs{\phi_{1,1}}} > \overline{\abs{\phi_{5,5}}} > \overline{\abs{\phi_{3,3}}} > \overline{\abs{\phi_{5,1}}} > \overline{\abs{\phi_{2,2}}}$。
+% 在图~\ref{fig:r37-inter-matrix}(b)中, 图~\ref{fig:r37-inter-matrix}(a)的矩阵通过将每个非对角元素除以其对应的对角元素进行归一化, 即 $\overline{\abs{\phi_{i,j}}}/\overline{\abs{\phi_{i,i}}}$。
+% 在图~\ref{fig:r37-inter-matrix}(b)中, 通过将图~\ref{fig:r37-inter-matrix}(a)中的矩阵每个非对角元素除以其对应的对角元素进行归一化处理, 即$\overline{\abs{\phi_{i,j}}}/\overline{\abs{\phi_{i,i}}}$。
+% 所得矩阵反映了当输入特征$q_j$与特征$q_i$产生联合效应时, 对输出值的相对影响。
+% 图~\ref{fig:r37-shap}(b)中矩阵每行的最大归一化交互SHAP值(非对角线元素)位于第一列和最后一列。
+% 可见特征 $\mathcal{P}/\mathcal{D}$ ($q_1$)与 $\|\bm{S}\|/\|\Omega\|$ ($q_2$)在与旋度 $h$ ($q_5$)相互作用时对输出影响最大, 而特征 $\delta$ ($q_3$)、$\chi$ ($q_4$)和 $h$ ($q_5$)在与特征 $\mathcal{P}/{D}$ ($q_1$)相互作用时对输出影响最大。
+
+\begin{figure}[!htb]
+    \centering
+    \subfigure[]{\includegraphics[width=0.475\linewidth]{Img/chap-2/shap-inter-matrix.pdf}}
+    \subfigure[]{\includegraphics[width=0.475\linewidth]{Img/chap-2/shap-inter-matrix-scaled.pdf}}
+    \bicaption{(a)绝对SHAP交互值均值与(b)归一化绝对SHAP交互值均值的热力图。}{Heatmap of (a) mean of absolute SHAP interaction values and (b) normalized mean of absolute SHAP interaction values.}
+    \label{fig:r37-inter-matrix}
+\end{figure}
+
+图~\ref{fig:r37-shap-inter-dialog} 详细展示了主效应分量 $\phi_{i,i}$ 与对应输入特征 $q_i$ 之间的响应关系。图中各散点代表 CFD 空间网格点，实心蓝线为数据点的非参数拟合曲线，反映了特征对模型输出的平均边际影响。
+
+
+
+主效应分析结果表明，各特征的纯粹影响规律如下：
+\begin{itemize}
+    \item \textbf{非平衡效应的主导性}：$\phi_{1,1}$ 与 $q_1$ 呈现明显的负相关规律，且拟合曲线在所有特征中具有最大的斜率绝对值。这再次印证了模型输出对生成/破坏比的高度敏感性，表明非平衡效应的校正是模型修正逻辑的基石。
+    \item \textbf{应变/旋转比的阈值效应}：特征 $q_2$ 在 $q_2 > 0$ 区间内对输出产生显著的负向影响。这说明当局部应变率张量模与涡度之比超过特定物理阈值时，神经网络会自动介入并抑制湍流粘度的过度增长。
+    \item \textbf{压力梯度的温和调节}：不利压力梯度指标 $q_3$ 与输出呈负相关，但其拟合斜率较 $q_1$ 更为平缓，表明模型将压力梯度视为一种辅助性的修正约束。
+    \item \textbf{工作变量的线性响应}：特征 $q_4$（$\chi$）表现出微弱的正相关性，且主效应量级较小，对最终修正系数 $\beta$ 的调节作用有限。
+    \item \textbf{螺旋度的非单调物理机制}：螺旋度 $q_5$ 对模型输出的响应表现出显著的非线性与复杂性。在低螺旋度区间（$q_5 < 0.25$），主效应随特征值单调递增；而在 $q_5 > 0.25$ 的高值区间，曲线呈现出独特的非单调双峰特征。这种复杂响应反映了神经网络能够识别出激波与泄漏涡相互作用区内不同阶段的流动畸度特征，并实施差异化的非线性补偿方案。
+\end{itemize}
+
+这种基于主效应曲线的深入剖析，清晰地揭示了神经网络如何通过非线性的“特征-输出”映射，实现对跨音速转子流场中多种复杂物理效应的解耦与重构。
+
+% 图~\ref{fig:r37-shap-inter-dialog} 展示了 $\phi_{i,i}$ 与对应输入特征 $q_i$ 之间的关系, 其中每个点代表一个CFD网格点, 实心蓝线是拟合数据点的曲线。
+% 对角线SHAP值与输入特征的关系与图~\ref{fig:r37-shap} 所示相似。
+% 即:
+% $\phi_{1,1}$ 与 $-q_1$ 成正比;
+% 当 $q_2>0$ 时, $\phi_{2,2}$ 与 $q_2$ 成正比;
+% $\phi_{3,3}$ 与 $-q_3$ 成正比;
+% $\phi_{4,4}$ 与 $q_4$ 成正比;
+% $\phi_{5,5}$ 与 $q_5$ 成正比。
+% 就各特征的纯粹影响而言, 输出对特征 $\mathcal{P}/\mathcal{D}$ 最为敏感, 因拟合曲线的斜率绝对值最大。
+% 特征 $\|\bm{S}\|/\|\Omega\|$ 在 $q_2>0$ 时对输出产生负向影响, 表明当应变率张量模与涡度之比超过特定阈值时, 该特征对模型输出具有显著影响。
+% 不利压力梯度指标(即$q_3$)与神经网络输出呈负相关, 其斜率相较于 $q_1$ 相对温和。
+% 特征 $\chi$ (即$q_4$)对输出影响极小, 仅呈现微弱正相关。
+% 旋度 $h$ ($q_5$)对神经网络输出的纯粹影响较为复杂。
+% 当 $h$ 值较小(即 $q_5<0.25$)时, 其对输出的纯粹影响呈单调递增趋势, 并降低网络输出值。
+% 然而在 $q_5>0.25$ 的区间内, 螺旋度的纯粹影响呈现非单调变化, 且存在两个峰值。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/shap-inter-dialog.png}
+    \bicaption{对话框：SHAP交互值 $\phi_{i,i}$ 与对应输入特征 $q_i$ 的关系。}{Dialog SHAP interaction value $\phi_{i,i}$ on corresponding input feature $q_i$.}
+    \label{fig:r37-shap-inter-dialog}
+\end{figure}
+
+综上所述，通过对输入特征的归因分析与流场修正机制的深度解构，本研究成功揭示了“黑箱”神经网络模型的决策逻辑，其物理映射关系如图~\ref{fig:r37-conclusion} 所示。
+
+根据各输入特征对模型输出的全局显著性贡献，其重要性降序排列依次为：生成/破坏比 $\mathcal{P}/\mathcal{D}$、螺旋度 $h$、压力梯度指标 $\delta$、应变/旋转比 $\|\bm{S}\|/\|\Omega\|$ 以及工作变量 $\chi$。研究表明，在针对 SA 湍流模型的修正中，**非平衡效应（由 $\mathcal{P}/\mathcal{D}$ 衡量）**与**三维流动畸度（由螺旋度 $h$ 衡量，影响湍流能量的后向散射）**是驱动模型精度提升的两个核心物理维度。
+
+在特征响应逻辑方面，特征 $\mathcal{P}/\mathcal{D}$、$\|\bm{S}\|/\|\Omega\|$ 与 $\delta$ 对模型输出表现为负相关效应，而 $\chi$ 与 $h$ 则表现为正相关效应。特别是在叶尖泄漏涡与通道激波强相互作用区域的后方，神经网络通过捕捉这些局部特征，输出 $\beta > 1$ 的修正系数。
+
+
+
+该修正方案通过在涡崩溃及强非平衡区域自适应地增强涡粘性，有效地强化了流场内部的动量与能量传递机制。相比于传统的基准 RANS 模型，这一数据驱动的修正模型能够更准确地刻画复杂阻塞区域内的 Mach 数分布，从而显著提升了对跨音速压气机转子内部复杂流场的预测保真度。这一结论不仅验证了集合 Kalman 方法在湍流建模中的有效性，也为开发具有物理可解释性的下一代计算流体力学模型提供了重要参考。
+
+% 综上所述, 通过输入特征的可解释性分析与模型修正, 我们能够深入理解黑箱神经网络模型, 如图~\ref{fig:r37-conclusion} 所示。
+% 根据对模型输出全局重要性降序排列的输入特征依次为: $\mathcal{P}/\mathcal{D}$、$h$、$\delta$、$\|\bm{S}\|/\|\Omega\|$、$\chi$。
+% 研究发现, SA模型修正中最重要的两个特征是生成项与破坏项之比以及螺旋度。
+% 前者衡量非平衡效应, 后者影响湍流中的能量后向散射。
+% 红色箭头表示特征重要性值较大, 蓝色箭头表示较小。
+% 特征$\mathcal{P}/\mathcal{D}$、$\|\bm{S}\|/\|\Omega\|$和$\delta$与模型输出呈负相关, 而$\chi$和$h$呈正相关。
+% 在尖端泄漏涡与激波相互作用区域后方, 模型输出呈现 $\beta>1$ 的特征。
+% 对 SA 湍流模型的修正通过增加涡黏, 有效捕捉了涡流崩溃区域的非平衡效应。
+% 由此增强了动量与能量传递, 相较基准模型, 该修正方案能更准确预测阻塞区域内的Mach数。
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\linewidth]{Img/chap-2/explanation.png}
+    \bicaption{神经网络在输入特征与模型输出方面的可解释性图示。}{Illustration of the neural network explanation in the input features and the model output.}
+    \label{fig:r37-conclusion}
+\end{figure}
+
+
+% \section{本章小结}
+% \label{sec:conclusion}
+% 本研究针对跨音速轴向压缩机转子流动, 探讨了基于集合卡尔曼的湍流模型的可解释性。
+% 通过采用模型一致性训练方法, 基于神经网络的模型修正方案整合了包括速度在内的多种实验数据, 从而提升了流场预测精度。
+% 通过分析学习得到的神经网络, 基于模型修正和湍流粘度场解释了预测性能的提升。
+% 此外, 通过SHAP方法分析输入特征, 揭示其对学习模型修正的相对贡献。
+% 数值结果表明, 学习神经网络通过捕捉漩涡崩溃区域的阻塞效应, 显著提升了机匣附近Mach数的预测精度。
+% 基准模型因平衡假设而低估了此类阻塞效应。
+% 相比之下, 学习模型通过基于神经网络的修正方案增强局部生成率, 从而考虑非平衡效应以提升流场预测精度。
+% 此外, 神经网络的事后可解释性分析表明, 生成-破坏比与涡旋畸度是学习神经网络的两大关键特征。
+% 该发现可为未来研究中开发精确湍流模型的输入特征选择提供指导。
+
+\section{本章小结}
+\label{sec:conclusion}
+
+本章针对 NASA Rotor 37 跨音速轴流压气机转子内部复杂流动，深入探讨了基于集合 Kalman 方法（EnKF）构建的可解释湍流建模框架。通过将数据同化技术与深度学习相结合，本研究不仅实现了对复杂流场的精准修正，还从物理机制与归因分析两个维度揭示了数据驱动模型的决策逻辑。主要研究结论归纳如下：
+
+\begin{enumerate}
+    \item \textbf{流场预测精度的全方位提升}：本研究采用的模型一致性训练方法有效整合了异构实验观测数据。验证结果表明，相比于基准 SA 模型，经过同化训练的神经网络模型在全流量运行范围内均表现出更高的预测保真度，特别是在跨音速转子叶尖区域，其对 Mach 数径向分布及总压比的预测误差显著降低。
+
+    \item \textbf{物理机制的解构与修正}：通过对比涡粘性场与修正系数 $\beta$ 的演化规律，阐明了模型性能提升的物理本质。研究发现，基准模型失效的根源在于其固有的准平衡态假设忽略了激波/泄漏涡相互作用诱发的流动堵塞。而训练模型通过在旋涡崩溃及强非平衡区域动态增强湍流生成率，有效补偿了动量交换预测的不足，从而更准确地刻画了机匣附近的阻塞效应。
+
+    \item \textbf{模型决策的可解释性归因}：基于 SHAP 方法的事后归因分析确立了输入特征与模型输出之间的非线性映射逻辑。分析表明，**生成-破坏比（$\mathcal{P}/\mathcal{D}$）**与**螺旋度（$h$）**是驱动湍流模型修正的两大核心物理维度。前者通过衡量流场的非平衡程度主导全局修正权重，后者则通过刻画三维畸度影响能量损失的建模精度。
+
+    \item \textbf{对未来研究的指导价值}：本章通过对神经网络交互效应及主效应曲线的剖析，证实了各物理特征对湍流损失贡献的差异化响应规律。这一发现不仅为跨音速旋转机械中湍流模型的特征工程提供了理论支撑，也为后续开发具有高度物理鲁棒性且可解释的新型湍流闭合模型奠定了基础。
+\end{enumerate}
+
+综上所述，本章提出的可解释湍流建模框架成功实现了数据驱动方法与传统流体力学知识的深度融合，为提升航空发动机核心压气机部件的数值模拟精度提供了新的技术路径。
